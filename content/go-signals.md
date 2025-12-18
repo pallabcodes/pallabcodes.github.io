@@ -10,6 +10,8 @@ Every long-running Go program—whether it's an HTTP server, a worker process, o
 
 Go makes this surprisingly elegant by treating OS signals as just another event source you can receive on a channel. Let's dig into how it actually works.
 
+<!-- more -->
+
 ## The Basic Pattern
 
 Here's the minimal version you'll see everywhere:

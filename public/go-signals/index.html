@@ -93,7 +93,7 @@
         <div class="post-content">
             <p>Every long-running Go program—whether it's an HTTP server, a worker process, or a CLI tool—needs to handle shutdown gracefully. You don't want your database connections left hanging or your in-flight requests aborted mid-write when someone hits Ctrl+C.</p>
 <p>Go makes this surprisingly elegant by treating OS signals as just another event source you can receive on a channel. Let's dig into how it actually works.</p>
-<h2 id="the-basic-pattern">The Basic Pattern</h2>
+<span id="continue-reading"></span><h2 id="the-basic-pattern">The Basic Pattern</h2>
 <p>Here's the minimal version you'll see everywhere:</p>
 <pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">package </span><span style="color:#bf616a;">main
 </span><span>
