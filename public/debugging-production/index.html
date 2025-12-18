@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Debugging Production Issues: A Systematic Approach | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="How to efficiently diagnose and fix issues in production systems.">
+
+    <meta property="og:description" content="How to efficiently diagnose and fix issues in production systems.">
+    <meta property="og:title" content="Debugging Production Issues: A Systematic Approach | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/debugging-production/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="How to efficiently diagnose and fix issues in production systems.">
+    <meta name="twitter:title" content="Debugging Production Issues: A Systematic Approach | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/debugging-production/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/debugging-production/">Debugging Production Issues: A Systematic Approach</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2024-12-11
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/debugging/">#debugging</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/observability/">#observability</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a></span>
+    
+
+        <div class="post-content">
+            <p>Production is down. Alerts are firing. Management is asking questions. Here's how to stay calm and fix it fast.</p>
+<span id="continue-reading"></span><h2 id="the-ooda-loop-for-incidents">The OODA Loop for Incidents</h2>
+<p>Military decision-making adapted for debugging:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>┌─────────────────────────────────────────────────┐
+</span><span>│                                                 │
+</span><span>│    Observe → Orient → Decide → Act → Repeat    │
+</span><span>│                                                 │
+</span><span>└─────────────────────────────────────────────────┘
+</span></code></pre>
+<h2 id="step-1-observe">Step 1: Observe</h2>
+<p>Gather data before making changes:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Quick system health check
+</span><span style="color:#bf616a;">top -l</span><span> 1 | </span><span style="color:#bf616a;">head -10
+</span><span style="color:#bf616a;">df -h
+</span><span style="color:#bf616a;">free -m
+</span><span>
+</span><span style="color:#65737e;"># Recent logs
+</span><span style="color:#bf616a;">journalctl -u</span><span> your-service</span><span style="color:#bf616a;"> --since </span><span>&quot;</span><span style="color:#a3be8c;">10 minutes ago</span><span>&quot;
+</span><span>
+</span><span style="color:#65737e;"># Network connections
+</span><span style="color:#bf616a;">netstat -an </span><span>| </span><span style="color:#bf616a;">grep</span><span> ESTABLISHED | </span><span style="color:#bf616a;">wc -l
+</span><span>
+</span><span style="color:#65737e;"># Process state
+</span><span style="color:#bf616a;">ps</span><span> aux | </span><span style="color:#bf616a;">grep</span><span> your-service
+</span></code></pre>
+<p><strong>Key metrics to check:</strong></p>
+<ul>
+<li>CPU/Memory/Disk usage</li>
+<li>Request latency (p50, p95, p99)</li>
+<li>Error rates</li>
+<li>Queue depths</li>
+<li>Connection pools</li>
+</ul>
+<h2 id="step-2-orient">Step 2: Orient</h2>
+<p>Ask the right questions:</p>
+<ol>
+<li><strong>What changed?</strong> Recent deployments? Config changes?</li>
+<li><strong>When did it start?</strong> Correlate with events</li>
+<li><strong>What's the blast radius?</strong> All users? Some users? One region?</li>
+<li><strong>Is it getting worse?</strong> Stable? Recovering?</li>
+</ol>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- Example: Check if errors correlate with specific users
+</span><span style="color:#b48ead;">SELECT</span><span> user_id, </span><span style="color:#96b5b4;">COUNT</span><span>(</span><span style="color:#bf616a;">*</span><span>) as error_count
+</span><span style="color:#b48ead;">FROM</span><span> error_logs
+</span><span style="color:#b48ead;">WHERE timestamp </span><span>&gt; NOW() - INTERVAL &#39;</span><span style="color:#a3be8c;">1 hour</span><span>&#39;
+</span><span style="color:#b48ead;">GROUP BY</span><span> user_id
+</span><span style="color:#b48ead;">ORDER BY</span><span> error_count </span><span style="color:#b48ead;">DESC
+</span><span style="color:#b48ead;">LIMIT </span><span style="color:#d08770;">10</span><span>;
+</span></code></pre>
+<h2 id="step-3-decide">Step 3: Decide</h2>
+<p>Form a hypothesis and choose an action:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Hypothesis: Database connection pool is exhausted
+</span><span>
+</span><span>Evidence:
+</span><span>- Errors: &quot;connection timeout&quot;
+</span><span>- DB metrics: pool utilization at 100%
+</span><span>- Recent change: New feature with N+1 queries
+</span><span>
+</span><span>Action options:
+</span><span>1. Rollback the deployment (safest)
+</span><span>2. Increase pool size (quick fix)
+</span><span>3. Fix the N+1 query (root cause)
+</span></code></pre>
+<h2 id="step-4-act">Step 4: Act</h2>
+<p>Make ONE change at a time:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Rollback example
+</span><span style="color:#bf616a;">kubectl</span><span> rollout undo deployment/api-server
+</span><span>
+</span><span style="color:#65737e;"># Or scale up
+</span><span style="color:#bf616a;">kubectl</span><span> scale deployment/api-server</span><span style="color:#bf616a;"> --replicas</span><span>=10
+</span><span>
+</span><span style="color:#65737e;"># Watch the effect
+</span><span style="color:#bf616a;">watch -n</span><span> 5 &#39;</span><span style="color:#a3be8c;">curl -s http://localhost/health | jq .status</span><span>&#39;
+</span></code></pre>
+<h2 id="the-5-whys">The 5 Whys</h2>
+<p>Dig to the root cause:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Problem: API returning 500 errors
+</span><span>
+</span><span>Why? → Database queries timing out
+</span><span>Why? → Connection pool exhausted  
+</span><span>Why? → Queries holding connections too long
+</span><span>Why? → N+1 query pattern in new feature
+</span><span>Why? → Missing eager loading in ORM
+</span><span>
+</span><span>Root cause: ORM configuration issue
+</span></code></pre>
+<h2 id="common-patterns-and-quick-fixes">Common Patterns and Quick Fixes</h2>
+<table><thead><tr><th>Symptom</th><th>Likely Cause</th><th>Quick Fix</th></tr></thead><tbody>
+<tr><td>Memory climbing</td><td>Memory leak</td><td>Restart pods</td></tr>
+<tr><td>Latency spike</td><td>GC pressure</td><td>Increase heap</td></tr>
+<tr><td>Connection errors</td><td>Pool exhaustion</td><td>Increase pool size</td></tr>
+<tr><td>CPU 100%</td><td>Infinite loop</td><td>Kill and debug</td></tr>
+<tr><td>Disk full</td><td>Log files</td><td>Rotate logs</td></tr>
+</tbody></table>
+<h2 id="post-incident-write-it-down">Post-Incident: Write It Down</h2>
+<p>Every incident should produce:</p>
+<pre data-lang="markdown" style="background-color:#2b303b;color:#c0c5ce;" class="language-markdown "><code class="language-markdown" data-lang="markdown"><span style="color:#8fa1b3;">## Incident Report: API Outage 2024-12-11
+</span><span>
+</span><span style="font-weight:bold;color:#ebcb8b;">**Duration**</span><span>: 14:32 - 15:17 (45 minutes)
+</span><span style="font-weight:bold;color:#ebcb8b;">**Impact**</span><span>: 30% of API requests failed
+</span><span style="font-weight:bold;color:#ebcb8b;">**Root Cause**</span><span>: N+1 query in new feature
+</span><span>
+</span><span style="color:#8fa1b3;">### Timeline
+</span><span style="color:#bf616a;">- 14:32: Alerts fire for high error rate
+</span><span style="color:#bf616a;">- 14:45: Identified connection pool exhaustion
+</span><span style="color:#bf616a;">- 15:00: Rolled back deployment
+</span><span style="color:#bf616a;">- 15:17: Error rate returned to normal
+</span><span style="color:#bf616a;">
+</span><span style="color:#8fa1b3;">### Action Items
+</span><span style="color:#bf616a;">- [ ] Add eager loading to ORM queries
+</span><span style="color:#bf616a;">- [ ] Add connection pool monitoring
+</span><span style="color:#bf616a;">- [ ] Load test new features before deploy
+</span></code></pre>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Observe first</strong> - Don't change things until you understand</li>
+<li><strong>One change at a time</strong> - Otherwise you won't know what worked</li>
+<li><strong>Rollback is always an option</strong> - Sometimes the fastest fix</li>
+<li><strong>Automate the boring stuff</strong> - Runbooks for common issues</li>
+<li><strong>Blameless postmortems</strong> - Focus on systems, not people</li>
+</ol>
+<p>The best debugging skill is staying calm under pressure.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/api-design/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">API Design: REST vs GraphQL vs gRPC</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/rate-limiting/">
+                                <span class="button__text">Rate Limiting: Algorithms and Trade-offs</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

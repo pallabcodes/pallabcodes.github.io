@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Rate Limiting: Algorithms and Trade-offs | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Comparing token bucket, sliding window, and other rate limiting algorithms.">
+
+    <meta property="og:description" content="Comparing token bucket, sliding window, and other rate limiting algorithms.">
+    <meta property="og:title" content="Rate Limiting: Algorithms and Trade-offs | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/rate-limiting/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Comparing token bucket, sliding window, and other rate limiting algorithms.">
+    <meta name="twitter:title" content="Rate Limiting: Algorithms and Trade-offs | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/rate-limiting/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/rate-limiting/">Rate Limiting: Algorithms and Trade-offs</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2024-12-12
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/api-design/">#api-design</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/performance/">#performance</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/system-design/">#system-design</a></span>
+    
+
+        <div class="post-content">
+            <p>Rate limiting protects your APIs from abuse and ensures fair resource allocation. But which algorithm should you use?</p>
+<span id="continue-reading"></span><h2 id="why-rate-limiting">Why Rate Limiting?</h2>
+<p>Without rate limiting:</p>
+<ul>
+<li>One client can consume all resources</li>
+<li>DDoS attacks overwhelm your service</li>
+<li>Runaway scripts cause outages</li>
+<li>Costs spiral out of control</li>
+</ul>
+<h2 id="token-bucket-algorithm">Token Bucket Algorithm</h2>
+<p>The most common algorithm. Tokens are added at a fixed rate; requests consume tokens.</p>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#b48ead;">import </span><span>time
+</span><span style="color:#b48ead;">from </span><span>threading </span><span style="color:#b48ead;">import </span><span>Lock
+</span><span>
+</span><span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">TokenBucket</span><span style="color:#eff1f5;">:
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#96b5b4;">__init__</span><span>(</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">rate</span><span>: float, </span><span style="color:#bf616a;">capacity</span><span>: int):
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.rate = rate          </span><span style="color:#65737e;"># Tokens per second
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.capacity = capacity  </span><span style="color:#65737e;"># Max tokens
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.tokens = capacity
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.last_update = time.</span><span style="color:#bf616a;">time</span><span>()
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.lock = </span><span style="color:#bf616a;">Lock</span><span>()
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">allow_request</span><span>(</span><span style="color:#bf616a;">self</span><span>) -&gt; bool:
+</span><span>        </span><span style="color:#b48ead;">with </span><span style="color:#bf616a;">self</span><span>.lock:
+</span><span>            now = time.</span><span style="color:#bf616a;">time</span><span>()
+</span><span>            elapsed = now - </span><span style="color:#bf616a;">self</span><span>.last_update
+</span><span>            
+</span><span>            </span><span style="color:#65737e;"># Add tokens based on elapsed time
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.tokens = </span><span style="color:#96b5b4;">min</span><span>(
+</span><span>                </span><span style="color:#bf616a;">self</span><span>.capacity,
+</span><span>                </span><span style="color:#bf616a;">self</span><span>.tokens + elapsed * </span><span style="color:#bf616a;">self</span><span>.rate
+</span><span>            )
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.last_update = now
+</span><span>            
+</span><span>            </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">self</span><span>.tokens &gt;= </span><span style="color:#d08770;">1</span><span>:
+</span><span>                </span><span style="color:#bf616a;">self</span><span>.tokens -= </span><span style="color:#d08770;">1
+</span><span>                </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">True
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">False
+</span></code></pre>
+<p><strong>Pros</strong>: Allows bursts up to capacity, smooth rate limiting
+<strong>Cons</strong>: Burst at window boundaries possible</p>
+<h2 id="sliding-window-log">Sliding Window Log</h2>
+<p>Track exact timestamps of each request:</p>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">SlidingWindowLog</span><span style="color:#eff1f5;">:
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#96b5b4;">__init__</span><span>(</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">limit</span><span>: int, </span><span style="color:#bf616a;">window_seconds</span><span>: int):
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.limit = limit
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.window = window_seconds
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.requests = []
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">allow_request</span><span>(</span><span style="color:#bf616a;">self</span><span>) -&gt; bool:
+</span><span>        now = time.</span><span style="color:#bf616a;">time</span><span>()
+</span><span>        cutoff = now - </span><span style="color:#bf616a;">self</span><span>.window
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># Remove old requests
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.requests = [t </span><span style="color:#b48ead;">for </span><span>t </span><span style="color:#b48ead;">in </span><span style="color:#bf616a;">self</span><span>.requests </span><span style="color:#b48ead;">if </span><span>t &gt; cutoff]
+</span><span>        
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">len</span><span>(</span><span style="color:#bf616a;">self</span><span>.requests) &lt; </span><span style="color:#bf616a;">self</span><span>.limit:
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.requests.</span><span style="color:#bf616a;">append</span><span>(now)
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">True
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">False
+</span></code></pre>
+<p><strong>Pros</strong>: Precise, no boundary issues
+<strong>Cons</strong>: Memory-intensive for high traffic</p>
+<h2 id="sliding-window-counter">Sliding Window Counter</h2>
+<p>Approximate sliding window using fixed windows:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Window 1 (75% weight)    Window 2 (25% weight)
+</span><span>     ┌────────────┐      ┌────────────┐
+</span><span>     │ 40 requests│      │ 20 requests│
+</span><span>     └────────────┘      └────────────┘
+</span><span>                    ↑
+</span><span>              Current time (25% into window 2)
+</span><span>
+</span><span>Weighted count = 40 * 0.75 + 20 * 0.25 = 35
+</span></code></pre>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#b48ead;">class </span><span style="color:#ebcb8b;">SlidingWindowCounter</span><span style="color:#eff1f5;">:
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#96b5b4;">__init__</span><span>(</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">limit</span><span>: int, </span><span style="color:#bf616a;">window_seconds</span><span>: int):
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.limit = limit
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.window = window_seconds
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.prev_count = </span><span style="color:#d08770;">0
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.curr_count = </span><span style="color:#d08770;">0
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.window_start = </span><span style="color:#bf616a;">int</span><span>(time.</span><span style="color:#bf616a;">time</span><span>() / window_seconds)
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">allow_request</span><span>(</span><span style="color:#bf616a;">self</span><span>) -&gt; bool:
+</span><span>        now = time.</span><span style="color:#bf616a;">time</span><span>()
+</span><span>        current_window = </span><span style="color:#bf616a;">int</span><span>(now / </span><span style="color:#bf616a;">self</span><span>.window)
+</span><span>        
+</span><span>        </span><span style="color:#b48ead;">if </span><span>current_window &gt; </span><span style="color:#bf616a;">self</span><span>.window_start:
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.prev_count = </span><span style="color:#bf616a;">self</span><span>.curr_count
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.curr_count = </span><span style="color:#d08770;">0
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.window_start = current_window
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># Calculate position in current window
+</span><span>        elapsed = now - (current_window * </span><span style="color:#bf616a;">self</span><span>.window)
+</span><span>        weight = elapsed / </span><span style="color:#bf616a;">self</span><span>.window
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># Weighted sum
+</span><span>        count = </span><span style="color:#bf616a;">self</span><span>.prev_count * (</span><span style="color:#d08770;">1 </span><span>- weight) + </span><span style="color:#bf616a;">self</span><span>.curr_count
+</span><span>        
+</span><span>        </span><span style="color:#b48ead;">if </span><span>count &lt; </span><span style="color:#bf616a;">self</span><span>.limit:
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.curr_count += </span><span style="color:#d08770;">1
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">True
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">False
+</span></code></pre>
+<p><strong>Pros</strong>: Memory-efficient, reasonably precise
+<strong>Cons</strong>: Approximate</p>
+<h2 id="algorithm-comparison">Algorithm Comparison</h2>
+<table><thead><tr><th>Algorithm</th><th>Memory</th><th>Precision</th><th>Burst Handling</th></tr></thead><tbody>
+<tr><td>Token Bucket</td><td>O(1)</td><td>Good</td><td>Allows bursts</td></tr>
+<tr><td>Sliding Log</td><td>O(n)</td><td>Exact</td><td>No bursts</td></tr>
+<tr><td>Sliding Counter</td><td>O(1)</td><td>~99%</td><td>Smooth</td></tr>
+</tbody></table>
+<h2 id="distributed-rate-limiting">Distributed Rate Limiting</h2>
+<p>For multiple servers, use Redis:</p>
+<pre data-lang="python" style="background-color:#2b303b;color:#c0c5ce;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#b48ead;">import </span><span>redis
+</span><span>
+</span><span style="color:#b48ead;">def </span><span style="color:#8fa1b3;">check_rate_limit</span><span>(</span><span style="color:#bf616a;">redis_client</span><span>, </span><span style="color:#bf616a;">user_id</span><span>: str, </span><span style="color:#bf616a;">limit</span><span>: int, </span><span style="color:#bf616a;">window</span><span>: int) -&gt; bool:
+</span><span>    key = </span><span style="color:#b48ead;">f</span><span>&quot;</span><span style="color:#a3be8c;">rate_limit:</span><span>{user_id}&quot;
+</span><span>    current = redis_client.</span><span style="color:#bf616a;">incr</span><span>(key)
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">if </span><span>current == </span><span style="color:#d08770;">1</span><span>:
+</span><span>        redis_client.</span><span style="color:#bf616a;">expire</span><span>(key, window)
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">return </span><span>current &lt;= limit
+</span></code></pre>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Token bucket</strong> for most use cases—allows bursts, simple</li>
+<li><strong>Sliding window counter</strong> when precision matters</li>
+<li><strong>Use Redis</strong> for distributed rate limiting</li>
+<li><strong>Include headers</strong> - Tell clients their limits: <code>X-RateLimit-Remaining</code></li>
+<li><strong>Fail open carefully</strong> - What if Redis is down?</li>
+</ol>
+<p>Rate limiting is your API's immune system. Design it thoughtfully.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/debugging-production/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Debugging Production Issues: A Systematic Approach</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/rust-ownership/">
+                                <span class="button__text">Rust&#x27;s Ownership Model: A Mental Framework</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

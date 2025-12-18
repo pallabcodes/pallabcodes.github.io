@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Git Internals: How Git Really Works | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Understanding Git's object model and how it enables powerful version control.">
+
+    <meta property="og:description" content="Understanding Git's object model and how it enables powerful version control.">
+    <meta property="og:title" content="Git Internals: How Git Really Works | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/git-internals/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Understanding Git's object model and how it enables powerful version control.">
+    <meta name="twitter:title" content="Git Internals: How Git Really Works | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/git-internals/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/git-internals/">Git Internals: How Git Really Works</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2024-12-09
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/git/">#git</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/internals/">#internals</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/version-control/">#version-control</a></span>
+    
+
+        <div class="post-content">
+            <p>Most developers use Git daily without understanding how it works internally. Let's peek under the hood.</p>
+<span id="continue-reading"></span><h2 id="git-is-a-content-addressable-filesystem">Git is a Content-Addressable Filesystem</h2>
+<p>At its core, Git is a key-value store where keys are SHA-1 hashes:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> echo &quot;</span><span style="color:#a3be8c;">Hello, Git!</span><span>&quot; | </span><span style="color:#bf616a;">git</span><span> hash-object</span><span style="color:#bf616a;"> --stdin
+</span><span style="color:#bf616a;">af5626b4a114abcb82d63db7c8082c3c4756e51b
+</span></code></pre>
+<p>The same content always produces the same hash. This is fundamental.</p>
+<h2 id="the-four-object-types">The Four Object Types</h2>
+<p>Git stores everything as one of four object types:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>┌─────────────────────────────────────────────────────┐
+</span><span>│                   Git Object Types                   │
+</span><span>├─────────────────────────────────────────────────────┤
+</span><span>│                                                      │
+</span><span>│  blob   - File contents (no filename!)              │
+</span><span>│  tree   - Directory listing (names + blob refs)     │
+</span><span>│  commit - Snapshot + metadata + parent ref          │
+</span><span>│  tag    - Named reference to a commit               │
+</span><span>│                                                      │
+</span><span>└─────────────────────────────────────────────────────┘
+</span></code></pre>
+<h2 id="blob-storing-file-contents">Blob: Storing File Contents</h2>
+<p>A blob is just content, no metadata:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Create a blob
+</span><span style="color:#bf616a;">$</span><span> echo &quot;</span><span style="color:#a3be8c;">Hello</span><span>&quot; | </span><span style="color:#bf616a;">git</span><span> hash-object</span><span style="color:#bf616a;"> -w --stdin
+</span><span style="color:#bf616a;">ce013625030ba8dba906f756967f9e9ca394464a
+</span><span>
+</span><span style="color:#65737e;"># View the blob
+</span><span style="color:#bf616a;">$</span><span> git cat-file</span><span style="color:#bf616a;"> -p</span><span> ce01362
+</span><span style="color:#bf616a;">Hello
+</span></code></pre>
+<h2 id="tree-directory-structure">Tree: Directory Structure</h2>
+<p>A tree references blobs and other trees:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> git cat-file</span><span style="color:#bf616a;"> -p</span><span> HEAD^{tree}
+</span><span style="color:#bf616a;">100644</span><span> blob 3b18e512...   README.md
+</span><span style="color:#bf616a;">100644</span><span> blob f5512345...   index.js
+</span><span style="color:#bf616a;">040000</span><span> tree a1b2c3d4...   src/
+</span></code></pre>
+<p>Notice: trees contain names, blobs don't. The same file content in different locations is stored once.</p>
+<h2 id="commit-the-snapshot">Commit: The Snapshot</h2>
+<p>A commit ties it all together:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> git cat-file</span><span style="color:#bf616a;"> -p</span><span> HEAD
+</span><span style="color:#bf616a;">tree</span><span> 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+</span><span style="color:#bf616a;">parent</span><span> 8a3b5c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b
+</span><span style="color:#bf616a;">author</span><span> Alice &lt;alice@example.com&gt; </span><span style="color:#d08770;">1702234567</span><span> +0000
+</span><span style="color:#bf616a;">committer</span><span> Alice &lt;alice@example.com&gt; </span><span style="color:#d08770;">1702234567</span><span> +0000
+</span><span>
+</span><span style="color:#bf616a;">Add</span><span> initial implementation
+</span></code></pre>
+<h2 id="how-branches-work">How Branches Work</h2>
+<p>A branch is just a file containing a commit hash:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">$</span><span> cat .git/refs/heads/main
+</span><span style="color:#bf616a;">8a3b5c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b
+</span></code></pre>
+<p>That's it. When you "create a branch," Git creates a 41-byte file.</p>
+<h2 id="the-commit-graph">The Commit Graph</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>     A ← B ← C ← D  ← main
+</span><span>              ↖
+</span><span>               E ← F  ← feature
+</span></code></pre>
+<p>Each commit points to its parent(s). Merge commits have multiple parents.</p>
+<h2 id="what-actually-happens-during-common-operations">What Actually Happens During Common Operations</h2>
+<h3 id="git-add">git add</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># 1. Hash file content → create blob
+</span><span style="color:#65737e;"># 2. Update index (.git/index) with blob reference
+</span><span style="color:#bf616a;">$</span><span> git add file.txt
+</span></code></pre>
+<h3 id="git-commit">git commit</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># 1. Create tree from index
+</span><span style="color:#65737e;"># 2. Create commit pointing to tree + parent
+</span><span style="color:#65737e;"># 3. Update branch ref to new commit
+</span><span style="color:#bf616a;">$</span><span> git commit</span><span style="color:#bf616a;"> -m </span><span>&quot;</span><span style="color:#a3be8c;">message</span><span>&quot;
+</span></code></pre>
+<h3 id="git-merge">git merge</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># 1. Find common ancestor (merge base)
+</span><span style="color:#65737e;"># 2. Create combined tree
+</span><span style="color:#65737e;"># 3. Create commit with TWO parents
+</span><span style="color:#bf616a;">$</span><span> git merge feature
+</span></code></pre>
+<h2 id="practical-implications">Practical Implications</h2>
+<h3 id="why-rebasing-rewrites-history">Why rebasing "rewrites history"</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Before rebase:
+</span><span>A ← B ← C ← D  (main)
+</span><span>     ↖
+</span><span>      E ← F   (feature)
+</span><span>
+</span><span>After rebase:
+</span><span>A ← B ← C ← D ← E&#39; ← F&#39;  (main + feature)
+</span></code></pre>
+<p>E' and F' are NEW commits (new hashes) because their parent changed.</p>
+<h3 id="why-git-is-fast">Why Git is fast</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Same content = same hash = stored once
+</span><span style="color:#bf616a;">$</span><span> find .git/objects</span><span style="color:#bf616a;"> -type</span><span> f | </span><span style="color:#bf616a;">wc -l
+</span><span style="color:#bf616a;">147  </span><span style="color:#65737e;"># Even with thousands of files
+</span></code></pre>
+<p>Git deduplicates automatically via content-addressing.</p>
+<h3 id="recovery-the-reflog">Recovery: The reflog</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Git tracks all ref changes
+</span><span style="color:#bf616a;">$</span><span> git reflog
+</span><span style="color:#bf616a;">8a3b5c8</span><span> HEAD@{0}: commit: Add feature
+</span><span style="color:#bf616a;">f1e2d3c</span><span> HEAD@{1}: checkout: moving from main to feature
+</span><span style="color:#bf616a;">...
+</span><span>
+</span><span style="color:#65737e;"># Recover &quot;lost&quot; commits
+</span><span style="color:#bf616a;">$</span><span> git checkout HEAD@{5}
+</span></code></pre>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Git is a content-addressed store</strong> - Hashes are keys</li>
+<li><strong>Blobs store content, trees store names</strong> - Deduplication</li>
+<li><strong>Branches are just pointers</strong> - 41-byte files</li>
+<li><strong>Commits are immutable</strong> - "Modifying" creates new commits</li>
+<li><strong>The reflog is your safety net</strong> - Hard to permanently lose work</li>
+</ol>
+<p>Understanding Git's internals makes complex operations intuitive.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-concurrency/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Concurrency Patterns in Go</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/api-design/">
+                                <span class="button__text">API Design: REST vs GraphQL vs gRPC</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

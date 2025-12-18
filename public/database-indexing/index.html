@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Database Indexing: Beyond the Basics | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Understanding B-trees, covering indexes, and when NOT to use indexes.">
+
+    <meta property="og:description" content="Understanding B-trees, covering indexes, and when NOT to use indexes.">
+    <meta property="og:title" content="Database Indexing: Beyond the Basics | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/database-indexing/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Understanding B-trees, covering indexes, and when NOT to use indexes.">
+    <meta name="twitter:title" content="Database Indexing: Beyond the Basics | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/database-indexing/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/database-indexing/">Database Indexing: Beyond the Basics</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2024-12-15
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/databases/">#databases</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/performance/">#performance</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/postgresql/">#postgresql</a></span>
+    
+
+        <div class="post-content">
+            <p>Every developer knows indexes make queries faster. But do you know <em>why</em> they work, when they hurt, and how to design them effectively?</p>
+<span id="continue-reading"></span><h2 id="how-b-tree-indexes-work">How B-Tree Indexes Work</h2>
+<p>Most databases use B-tree indexes. Think of it as a sorted phonebook for your data:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>                    [M]
+</span><span>                   /   \
+</span><span>              [D,G]     [R,U]
+</span><span>             /  |  \    /  |  \
+</span><span>          [A-C][E-F][H-L][N-Q][S-T][V-Z]
+</span><span>                              ↓
+</span><span>                         Leaf nodes
+</span><span>                     (pointers to rows)
+</span></code></pre>
+<p><strong>Time complexity</strong>: O(log n) for lookups vs O(n) for full table scan.</p>
+<h2 id="the-query-optimizer-s-perspective">The Query Optimizer's Perspective</h2>
+<p>The database decides whether to use an index based on <strong>selectivity</strong>:</p>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- Index WILL be used (low selectivity)
+</span><span style="color:#b48ead;">SELECT </span><span style="color:#bf616a;">* </span><span style="color:#b48ead;">FROM</span><span> users </span><span style="color:#b48ead;">WHERE</span><span> email = &#39;</span><span style="color:#a3be8c;">john@example.com</span><span>&#39;;
+</span><span>
+</span><span style="color:#65737e;">-- Index might NOT be used (high selectivity)
+</span><span style="color:#b48ead;">SELECT </span><span style="color:#bf616a;">* </span><span style="color:#b48ead;">FROM</span><span> users </span><span style="color:#b48ead;">WHERE</span><span> is_active = </span><span style="color:#d08770;">true</span><span>;  </span><span style="color:#65737e;">-- If 90% are active
+</span></code></pre>
+<p>Rule of thumb: If a query returns more than ~10-15% of rows, a full scan is often faster.</p>
+<h2 id="covering-indexes">Covering Indexes</h2>
+<p>A covering index contains all columns needed by a query, eliminating the need to read the actual table:</p>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- Query
+</span><span style="color:#b48ead;">SELECT</span><span> name, email </span><span style="color:#b48ead;">FROM</span><span> users </span><span style="color:#b48ead;">WHERE</span><span> status = &#39;</span><span style="color:#a3be8c;">active</span><span>&#39;;
+</span><span>
+</span><span style="color:#65737e;">-- Covering index (PostgreSQL)
+</span><span style="color:#b48ead;">CREATE INDEX </span><span style="color:#8fa1b3;">idx_users_status_covering 
+</span><span>ON users (status) INCLUDE (name, email);
+</span></code></pre>
+<p>The query can be satisfied entirely from the index—no table lookup needed.</p>
+<h2 id="composite-index-column-order-matters">Composite Index Column Order Matters</h2>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- Index on (country, city, name)
+</span><span>
+</span><span style="color:#65737e;">-- ✅ Uses index effectively
+</span><span style="color:#b48ead;">WHERE</span><span> country = &#39;</span><span style="color:#a3be8c;">USA</span><span>&#39;
+</span><span style="color:#b48ead;">WHERE</span><span> country = &#39;</span><span style="color:#a3be8c;">USA</span><span>&#39; AND city = &#39;</span><span style="color:#a3be8c;">NYC</span><span>&#39;
+</span><span style="color:#b48ead;">WHERE</span><span> country = &#39;</span><span style="color:#a3be8c;">USA</span><span>&#39; AND city = &#39;</span><span style="color:#a3be8c;">NYC</span><span>&#39; AND name = &#39;</span><span style="color:#a3be8c;">John</span><span>&#39;
+</span><span>
+</span><span style="color:#65737e;">-- ⚠️ Uses index partially
+</span><span style="color:#b48ead;">WHERE</span><span> country = &#39;</span><span style="color:#a3be8c;">USA</span><span>&#39; AND name = &#39;</span><span style="color:#a3be8c;">John</span><span>&#39;  </span><span style="color:#65737e;">-- Skips city
+</span><span>
+</span><span style="color:#65737e;">-- ❌ Cannot use index
+</span><span style="color:#b48ead;">WHERE</span><span> city = &#39;</span><span style="color:#a3be8c;">NYC</span><span>&#39;  </span><span style="color:#65737e;">-- Doesn&#39;t start with country
+</span><span style="color:#b48ead;">WHERE</span><span> name = &#39;</span><span style="color:#a3be8c;">John</span><span>&#39; </span><span style="color:#65737e;">-- Doesn&#39;t start with country
+</span></code></pre>
+<p>Think of it like a phone book: you can't skip to "Smith" without first knowing the region.</p>
+<h2 id="when-indexes-hurt">When Indexes Hurt</h2>
+<p>Every index has costs:</p>
+<ol>
+<li><strong>Write overhead</strong>: INSERT, UPDATE, DELETE must update indexes</li>
+<li><strong>Storage</strong>: Indexes consume disk space</li>
+<li><strong>Memory</strong>: Hot indexes should fit in memory</li>
+</ol>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- Don&#39;t index these columns:
+</span><span style="color:#65737e;">-- - Low cardinality (boolean, status with few values)
+</span><span style="color:#65737e;">-- - Rarely queried columns
+</span><span style="color:#65737e;">-- - Tables with heavy write traffic and rare reads
+</span></code></pre>
+<h2 id="practical-query-analysis">Practical Query Analysis</h2>
+<pre data-lang="sql" style="background-color:#2b303b;color:#c0c5ce;" class="language-sql "><code class="language-sql" data-lang="sql"><span style="color:#65737e;">-- PostgreSQL: See the query plan
+</span><span>EXPLAIN ANALYZE 
+</span><span style="color:#b48ead;">SELECT </span><span style="color:#bf616a;">* </span><span style="color:#b48ead;">FROM</span><span> orders </span><span style="color:#b48ead;">WHERE</span><span> customer_id = </span><span style="color:#d08770;">123</span><span>;
+</span><span>
+</span><span style="color:#65737e;">-- Output to look for:
+</span><span style="color:#65737e;">-- ✅ Index Scan using idx_orders_customer_id
+</span><span style="color:#65737e;">-- ❌ Seq Scan on orders
+</span></code></pre>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Understand selectivity</strong> - Indexes don't help if you're returning most rows</li>
+<li><strong>Use covering indexes</strong> - Include columns to avoid table lookups</li>
+<li><strong>Order matters</strong> - Put high-selectivity columns first in composite indexes</li>
+<li><strong>Measure everything</strong> - Use <code>EXPLAIN ANALYZE</code>, don't guess</li>
+</ol>
+<p>Indexing is an art of trade-offs. Master it, and your databases will thank you.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/designing-for-failure/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Designing for Failure: Building Resilient Systems</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/testable-code/">
+                                <span class="button__text">The Art of Writing Testable Code</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
