@@ -1,0 +1,46 @@
+# Site Configuration
+base_url = "https://pallabcodes.github.io"
+title = "Pallab Codes"
+description = "Software Engineering Blog - Deep dives into systems, architecture, and code"
+
+# Rendering
+compile_sass = true
+generate_feeds = true
+feed_filenames = ["rss.xml"]
+
+# Terminimal Theme
+theme = "terminimal"
+
+# Taxonomies (optional: tags)
+taxonomies = [
+    { name = "tags" }
+]
+
+# Code highlighting - important for tech blog
+[markdown]
+highlight_code = true
+highlight_theme = "base16-ocean-dark"
+
+[extra]
+# Terminal theme: blue, green, orange, pink, red (append -light or -auto for variants)
+accent_color = "green"
+background_color = "dark"
+
+# Branding
+logo_text = "pallab.codes"
+author = "Pallab"
+
+# Menu navigation
+menu_items = [
+    { name = "blog", url = "$BASE_URL" },
+    { name = "tags", url = "$BASE_URL/tags" },
+    { name = "about", url = "$BASE_URL/about" },
+    { name = "github", url = "https://github.com/pallabcodes", newtab = true },
+]
+
+# Post navigation
+enable_post_view_navigation = true
+post_view_navigation_prompt = "Read more posts?"
+
+# Page title rendering
+page_titles = "combined"
