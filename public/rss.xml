@@ -7,98 +7,10 @@
       <generator>Zola</generator>
       <language>en</language>
       <atom:link href="https://pallabcodes.github.io/rss.xml" rel="self" type="application/rss+xml"/>
-      <lastBuildDate>Wed, 18 Dec 2024 00:00:00 +0000</lastBuildDate>
-      <item>
-          <title>Welcome to My Technical Blog</title>
-          <pubDate>Wed, 18 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/first-post/</link>
-          <guid>https://pallabcodes.github.io/first-post/</guid>
-          <description xml:base="https://pallabcodes.github.io/first-post/">&lt;p&gt;Welcome to my technical blog! I&#x27;m excited to share my thoughts, experiences, and deep dives into software engineering.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Understanding the CAP Theorem in Distributed Systems</title>
-          <pubDate>Tue, 17 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/cap-theorem/</link>
-          <guid>https://pallabcodes.github.io/cap-theorem/</guid>
-          <description xml:base="https://pallabcodes.github.io/cap-theorem/">&lt;p&gt;The CAP theorem is one of the most fundamental concepts in distributed systems, yet it&#x27;s often misunderstood. Let&#x27;s break it down.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>The Art of Writing Testable Code</title>
-          <pubDate>Mon, 16 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/testable-code/</link>
-          <guid>https://pallabcodes.github.io/testable-code/</guid>
-          <description xml:base="https://pallabcodes.github.io/testable-code/">&lt;p&gt;Writing testable code isn&#x27;t about testing—it&#x27;s about good design. Code that&#x27;s easy to test is usually easy to understand, modify, and maintain.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Database Indexing: Beyond the Basics</title>
-          <pubDate>Sun, 15 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/database-indexing/</link>
-          <guid>https://pallabcodes.github.io/database-indexing/</guid>
-          <description xml:base="https://pallabcodes.github.io/database-indexing/">&lt;p&gt;Every developer knows indexes make queries faster. But do you know &lt;em&gt;why&lt;&#x2F;em&gt; they work, when they hurt, and how to design them effectively?&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Designing for Failure: Building Resilient Systems</title>
-          <pubDate>Sat, 14 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/designing-for-failure/</link>
-          <guid>https://pallabcodes.github.io/designing-for-failure/</guid>
-          <description xml:base="https://pallabcodes.github.io/designing-for-failure/">&lt;p&gt;In distributed systems, failure isn&#x27;t a bug—it&#x27;s a feature. The question isn&#x27;t &lt;em&gt;if&lt;&#x2F;em&gt; things will fail, but &lt;em&gt;when&lt;&#x2F;em&gt; and &lt;em&gt;how&lt;&#x2F;em&gt; you&#x27;ll handle it.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Rust&#x27;s Ownership Model: A Mental Framework</title>
-          <pubDate>Fri, 13 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/rust-ownership/</link>
-          <guid>https://pallabcodes.github.io/rust-ownership/</guid>
-          <description xml:base="https://pallabcodes.github.io/rust-ownership/">&lt;p&gt;Rust&#x27;s ownership model is often seen as complex. But once you understand the mental model, it becomes intuitive. Let&#x27;s build that intuition.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Rate Limiting: Algorithms and Trade-offs</title>
-          <pubDate>Thu, 12 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/rate-limiting/</link>
-          <guid>https://pallabcodes.github.io/rate-limiting/</guid>
-          <description xml:base="https://pallabcodes.github.io/rate-limiting/">&lt;p&gt;Rate limiting protects your APIs from abuse and ensures fair resource allocation. But which algorithm should you use?&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Debugging Production Issues: A Systematic Approach</title>
-          <pubDate>Wed, 11 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/debugging-production/</link>
-          <guid>https://pallabcodes.github.io/debugging-production/</guid>
-          <description xml:base="https://pallabcodes.github.io/debugging-production/">&lt;p&gt;Production is down. Alerts are firing. Management is asking questions. Here&#x27;s how to stay calm and fix it fast.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>API Design: REST vs GraphQL vs gRPC</title>
-          <pubDate>Tue, 10 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/api-design/</link>
-          <guid>https://pallabcodes.github.io/api-design/</guid>
-          <description xml:base="https://pallabcodes.github.io/api-design/">&lt;p&gt;Choosing an API style is one of the most impactful architectural decisions you&#x27;ll make. Let&#x27;s break down the trade-offs.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Git Internals: How Git Really Works</title>
-          <pubDate>Mon, 09 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/git-internals/</link>
-          <guid>https://pallabcodes.github.io/git-internals/</guid>
-          <description xml:base="https://pallabcodes.github.io/git-internals/">&lt;p&gt;Most developers use Git daily without understanding how it works internally. Let&#x27;s peek under the hood.&lt;&#x2F;p&gt;</description>
-      </item>
-      <item>
-          <title>Concurrency Patterns in Go</title>
-          <pubDate>Sun, 08 Dec 2024 00:00:00 +0000</pubDate>
-          <author>Unknown</author>
-          <link>https://pallabcodes.github.io/go-concurrency/</link>
-          <guid>https://pallabcodes.github.io/go-concurrency/</guid>
-          <description xml:base="https://pallabcodes.github.io/go-concurrency/">&lt;p&gt;Go&#x27;s concurrency primitives are simple, but combining them effectively takes practice. Here are battle-tested patterns.&lt;&#x2F;p&gt;</description>
-      </item>
+      <lastBuildDate>Thu, 18 Dec 2025 00:00:00 +0000</lastBuildDate>
       <item>
           <title>Handling OS Signals in Go</title>
-          <pubDate>Fri, 15 Mar 2024 00:00:00 +0000</pubDate>
+          <pubDate>Thu, 18 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>
           <link>https://pallabcodes.github.io/go-signals/</link>
           <guid>https://pallabcodes.github.io/go-signals/</guid>
@@ -288,6 +200,94 @@
 &lt;p&gt;Go treats the OS as just another event source. Signals become channel values. You handle them with the same primitives you use for everything else in Go.&lt;&#x2F;p&gt;
 &lt;p&gt;This is one of those tiny design decisions that makes Go feel cohesive. No special signal handler syntax, no callback registration—just channels all the way down.&lt;&#x2F;p&gt;
 </description>
+      </item>
+      <item>
+          <title>Welcome to My Technical Blog</title>
+          <pubDate>Wed, 18 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/first-post/</link>
+          <guid>https://pallabcodes.github.io/first-post/</guid>
+          <description xml:base="https://pallabcodes.github.io/first-post/">&lt;p&gt;Welcome to my technical blog! I&#x27;m excited to share my thoughts, experiences, and deep dives into software engineering.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Understanding the CAP Theorem in Distributed Systems</title>
+          <pubDate>Tue, 17 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/cap-theorem/</link>
+          <guid>https://pallabcodes.github.io/cap-theorem/</guid>
+          <description xml:base="https://pallabcodes.github.io/cap-theorem/">&lt;p&gt;The CAP theorem is one of the most fundamental concepts in distributed systems, yet it&#x27;s often misunderstood. Let&#x27;s break it down.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>The Art of Writing Testable Code</title>
+          <pubDate>Mon, 16 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/testable-code/</link>
+          <guid>https://pallabcodes.github.io/testable-code/</guid>
+          <description xml:base="https://pallabcodes.github.io/testable-code/">&lt;p&gt;Writing testable code isn&#x27;t about testing—it&#x27;s about good design. Code that&#x27;s easy to test is usually easy to understand, modify, and maintain.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Database Indexing: Beyond the Basics</title>
+          <pubDate>Sun, 15 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/database-indexing/</link>
+          <guid>https://pallabcodes.github.io/database-indexing/</guid>
+          <description xml:base="https://pallabcodes.github.io/database-indexing/">&lt;p&gt;Every developer knows indexes make queries faster. But do you know &lt;em&gt;why&lt;&#x2F;em&gt; they work, when they hurt, and how to design them effectively?&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Designing for Failure: Building Resilient Systems</title>
+          <pubDate>Sat, 14 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/designing-for-failure/</link>
+          <guid>https://pallabcodes.github.io/designing-for-failure/</guid>
+          <description xml:base="https://pallabcodes.github.io/designing-for-failure/">&lt;p&gt;In distributed systems, failure isn&#x27;t a bug—it&#x27;s a feature. The question isn&#x27;t &lt;em&gt;if&lt;&#x2F;em&gt; things will fail, but &lt;em&gt;when&lt;&#x2F;em&gt; and &lt;em&gt;how&lt;&#x2F;em&gt; you&#x27;ll handle it.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Rust&#x27;s Ownership Model: A Mental Framework</title>
+          <pubDate>Fri, 13 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/rust-ownership/</link>
+          <guid>https://pallabcodes.github.io/rust-ownership/</guid>
+          <description xml:base="https://pallabcodes.github.io/rust-ownership/">&lt;p&gt;Rust&#x27;s ownership model is often seen as complex. But once you understand the mental model, it becomes intuitive. Let&#x27;s build that intuition.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Rate Limiting: Algorithms and Trade-offs</title>
+          <pubDate>Thu, 12 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/rate-limiting/</link>
+          <guid>https://pallabcodes.github.io/rate-limiting/</guid>
+          <description xml:base="https://pallabcodes.github.io/rate-limiting/">&lt;p&gt;Rate limiting protects your APIs from abuse and ensures fair resource allocation. But which algorithm should you use?&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Debugging Production Issues: A Systematic Approach</title>
+          <pubDate>Wed, 11 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/debugging-production/</link>
+          <guid>https://pallabcodes.github.io/debugging-production/</guid>
+          <description xml:base="https://pallabcodes.github.io/debugging-production/">&lt;p&gt;Production is down. Alerts are firing. Management is asking questions. Here&#x27;s how to stay calm and fix it fast.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>API Design: REST vs GraphQL vs gRPC</title>
+          <pubDate>Tue, 10 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/api-design/</link>
+          <guid>https://pallabcodes.github.io/api-design/</guid>
+          <description xml:base="https://pallabcodes.github.io/api-design/">&lt;p&gt;Choosing an API style is one of the most impactful architectural decisions you&#x27;ll make. Let&#x27;s break down the trade-offs.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Git Internals: How Git Really Works</title>
+          <pubDate>Mon, 09 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/git-internals/</link>
+          <guid>https://pallabcodes.github.io/git-internals/</guid>
+          <description xml:base="https://pallabcodes.github.io/git-internals/">&lt;p&gt;Most developers use Git daily without understanding how it works internally. Let&#x27;s peek under the hood.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Concurrency Patterns in Go</title>
+          <pubDate>Sun, 08 Dec 2024 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-concurrency/</link>
+          <guid>https://pallabcodes.github.io/go-concurrency/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-concurrency/">&lt;p&gt;Go&#x27;s concurrency primitives are simple, but combining them effectively takes practice. Here are battle-tested patterns.&lt;&#x2F;p&gt;</description>
       </item>
     </channel>
 </rss>

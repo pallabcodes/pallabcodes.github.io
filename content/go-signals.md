@@ -1,6 +1,6 @@
 +++
 title = "Handling OS Signals in Go"
-date = 2024-03-15
+date = 2025-12-18
 description = "A practical guide to graceful shutdown and signal handling in Go applications"
 [taxonomies]
 tags = ["go", "systems", "concurrency"]

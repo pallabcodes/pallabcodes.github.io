@@ -74,6 +74,41 @@
         <div class="posts">
                 <div class="post on-list">
                     
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/git-internals/">Git Internals: How Git Really Works</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2024-12-09
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/git/">#git</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/internals/">#internals</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/version-control/">#version-control</a></span>
+    
+
+
+                    
+        <div class="post-content">
+            <p>Most developers use Git daily without understanding how it works internally. Let's peek under the hood.</p>
+        </div>
+        <div>
+            <!-- &#xFE0E; -- force text style - some devices render this as emoji -->
+            <a class="read-more button" href="https://pallabcodes.github.io/git-internals/">
+                <span class="button__text">Read more</span>&nbsp;
+                <span class="button__icon">&#8617;&#xFE0E;</span>
+            </a>
+        </div>
+    
+
+                </div>
+            
+                <div class="post on-list">
+                    
     <h1 class="post-title"><a href="https://pallabcodes.github.io/go-concurrency/">Concurrency Patterns in Go</a></h1>
     <div class="post-meta-inline">
         
@@ -104,217 +139,6 @@
             </a>
         </div>
     
-
-                </div>
-            
-                <div class="post on-list">
-                    
-    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-signals/">Handling OS Signals in Go</a></h1>
-    <div class="post-meta-inline">
-        
-    <span class="post-date">
-            2024-03-15
-        </span>
-
-    </div>
-
-    
-        <span class="post-tags-inline">
-                :: tags:&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/systems/">#systems</a></span>
-    
-
-
-                    <div class="post-content">
-            <p>Every long-running Go program—whether it's an HTTP server, a worker process, or a CLI tool—needs to handle shutdown gracefully. You don't want your database connections left hanging or your in-flight requests aborted mid-write when someone hits Ctrl+C.</p>
-<p>Go makes this surprisingly elegant by treating OS signals as just another event source you can receive on a channel. Let's dig into how it actually works.</p>
-<h2 id="the-basic-pattern">The Basic Pattern</h2>
-<p>Here's the minimal version you'll see everywhere:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">package </span><span style="color:#bf616a;">main
-</span><span>
-</span><span style="color:#b48ead;">import </span><span>(
-</span><span>    &quot;</span><span style="color:#a3be8c;">fmt</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">os</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">os/signal</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">syscall</span><span>&quot;
-</span><span>)
-</span><span>
-</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
-</span><span>    </span><span style="color:#bf616a;">sigs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#b48ead;">Signal</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span><span>    </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">Notify</span><span>(</span><span style="color:#bf616a;">sigs</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">done </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan bool</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span><span>
-</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
-</span><span>        </span><span style="color:#bf616a;">sig </span><span>:= &lt;-</span><span style="color:#bf616a;">sigs
-</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>()
-</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">received:</span><span>&quot;, </span><span style="color:#bf616a;">sig</span><span>)
-</span><span>        </span><span style="color:#bf616a;">done </span><span>&lt;- </span><span style="color:#d08770;">true
-</span><span>    }()
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">awaiting signal</span><span>&quot;)
-</span><span>    &lt;-</span><span style="color:#bf616a;">done
-</span><span>    </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">exiting</span><span>&quot;)
-</span><span>}
-</span></code></pre>
-<p>Run this, press Ctrl+C, and you'll see:</p>
-<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>awaiting signal
-</span><span>^C
-</span><span>received: interrupt
-</span><span>exiting
-</span></code></pre>
-<p>Let's break down why each piece exists.</p>
-<h2 id="why-a-buffered-channel">Why a Buffered Channel?</h2>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">sigs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#b48ead;">Signal</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span></code></pre>
-<p>The buffer of 1 matters more than you'd think. Signals can arrive at any time—even before your goroutine is ready to receive. An unbuffered channel would cause the signal to be dropped if no one's listening at that exact moment.</p>
-<p>I've debugged production issues where someone "optimized" this to an unbuffered channel, then wondered why their process occasionally ignored SIGTERM. Don't be that person.</p>
-<h2 id="registering-for-signals">Registering for Signals</h2>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">Notify</span><span>(</span><span style="color:#bf616a;">sigs</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
-</span></code></pre>
-<p>This tells Go's runtime: "When the OS sends these signals, deliver them to this channel instead of using the default behavior."</p>
-<p>The signals you'll care about most:</p>
-<ul>
-<li><strong>SIGINT</strong> — What you get when you press Ctrl+C</li>
-<li><strong>SIGTERM</strong> — The polite "please shut down" signal (what Kubernetes sends first, then waits <code>terminationGracePeriodSeconds</code> before SIGKILL)</li>
-<li><strong>SIGKILL</strong> — Instant death. You can't catch this one—don't try.</li>
-<li><strong>SIGHUP</strong> — Traditionally "reload config" in Unix daemons</li>
-<li><strong>SIGQUIT</strong> — Ctrl+\ in terminal. Go's runtime prints all goroutine stacks—invaluable for debugging hangs in production</li>
-</ul>
-<p>A common mistake: registering for SIGKILL. It won't work. The OS terminates your process before Go even sees it.</p>
-<h2 id="the-coordination-dance">The Coordination Dance</h2>
-<p>The <code>done</code> channel is just for internal coordination:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">done </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan bool</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span></code></pre>
-<p>The signal-handling goroutine receives the signal, does whatever cleanup it needs, then signals <code>done</code>. The main goroutine blocks on <code>done</code> until shutdown is triggered.</p>
-<p>Why a separate goroutine? Because <code>&lt;-sigs</code> blocks. If you put that in <code>main()</code>, you couldn't do anything else—no HTTP server, no background workers, nothing.</p>
-<h2 id="a-more-realistic-example">A More Realistic Example</h2>
-<p>In practice, you're usually dealing with something like an HTTP server:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">package </span><span style="color:#bf616a;">main
-</span><span>
-</span><span style="color:#b48ead;">import </span><span>(
-</span><span>    &quot;</span><span style="color:#a3be8c;">context</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">log</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">net/http</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">os</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">os/signal</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">syscall</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">time</span><span>&quot;
-</span><span>)
-</span><span>
-</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
-</span><span>    </span><span style="color:#bf616a;">server </span><span>:= &amp;</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Server</span><span>{</span><span style="color:#bf616a;">Addr</span><span>: &quot;</span><span style="color:#a3be8c;">:8080</span><span>&quot;}
-</span><span>
-</span><span>    </span><span style="color:#65737e;">// Start server in background
-</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
-</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">listening on :8080</span><span>&quot;)
-</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">ListenAndServe</span><span>(); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">ErrServerClosed </span><span>{
-</span><span>            </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Fatalf</span><span>(&quot;</span><span style="color:#a3be8c;">server error: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
-</span><span>        }
-</span><span>    }()
-</span><span>
-</span><span>    </span><span style="color:#65737e;">// Wait for shutdown signal
-</span><span>    </span><span style="color:#bf616a;">quit </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#b48ead;">Signal</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span><span>    </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">Notify</span><span>(</span><span style="color:#bf616a;">quit</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
-</span><span>    &lt;-</span><span style="color:#bf616a;">quit
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">shutting down...</span><span>&quot;)
-</span><span>
-</span><span>    </span><span style="color:#65737e;">// Give in-flight requests 30 seconds to complete
-</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithTimeout</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#d08770;">30</span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
-</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
-</span><span>
-</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">Shutdown</span><span>(</span><span style="color:#bf616a;">ctx</span><span>); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
-</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Fatalf</span><span>(&quot;</span><span style="color:#a3be8c;">forced shutdown: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
-</span><span>    }
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">server stopped</span><span>&quot;)
-</span><span>}
-</span></code></pre>
-<p>The key insight: <code>server.Shutdown()</code> is graceful—it stops accepting new connections while letting existing requests finish. The context timeout prevents a hung request from blocking shutdown forever.</p>
-<h2 id="the-modern-way-signal-notifycontext">The Modern Way: signal.NotifyContext</h2>
-<p>Go 1.16 introduced <code>signal.NotifyContext</code>, which is what you'll see in most new code:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">package </span><span style="color:#bf616a;">main
-</span><span>
-</span><span style="color:#b48ead;">import </span><span>(
-</span><span>    &quot;</span><span style="color:#a3be8c;">context</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">log</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">net/http</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">os/signal</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">syscall</span><span>&quot;
-</span><span>    &quot;</span><span style="color:#a3be8c;">time</span><span>&quot;
-</span><span>)
-</span><span>
-</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
-</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">stop </span><span>:= </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">NotifyContext</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
-</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">stop</span><span>()
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">server </span><span>:= &amp;</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Server</span><span>{</span><span style="color:#bf616a;">Addr</span><span>: &quot;</span><span style="color:#a3be8c;">:8080</span><span>&quot;}
-</span><span>
-</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
-</span><span>        &lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
-</span><span>        </span><span style="color:#bf616a;">shutdownCtx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithTimeout</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#d08770;">30</span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
-</span><span>        </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
-</span><span>        </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">Shutdown</span><span>(</span><span style="color:#bf616a;">shutdownCtx</span><span>)
-</span><span>    }()
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">listening on :8080</span><span>&quot;)
-</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">ListenAndServe</span><span>(); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">ErrServerClosed </span><span>{
-</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Fatalf</span><span>(&quot;</span><span style="color:#a3be8c;">server error: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
-</span><span>    }
-</span><span>}
-</span></code></pre>
-<p>This integrates directly with Go's context system, so you can pass <code>ctx</code> to database calls, HTTP clients, worker pools—anything that respects context cancellation.</p>
-<h2 id="handling-multiple-signals-differently">Handling Multiple Signals Differently</h2>
-<p>Sometimes you want different behavior for different signals:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">sigs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#b48ead;">Signal</span><span>, </span><span style="color:#d08770;">1</span><span>)
-</span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">Notify</span><span>(</span><span style="color:#bf616a;">sigs</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGHUP</span><span>)
-</span><span>
-</span><span style="color:#b48ead;">for </span><span>{
-</span><span>    </span><span style="color:#b48ead;">switch </span><span>&lt;-</span><span style="color:#bf616a;">sigs </span><span>{
-</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGHUP</span><span>:
-</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">reloading config...</span><span>&quot;)
-</span><span>        </span><span style="color:#bf616a;">reloadConfig</span><span>()
-</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>:
-</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">shutting down...</span><span>&quot;)
-</span><span>        </span><span style="color:#b48ead;">return
-</span><span>    }
-</span><span>}
-</span></code></pre>
-<p>This is a common pattern for daemons that support config reload without restart.</p>
-<h2 id="double-ctrl-c-for-force-quit">Double Ctrl+C for Force Quit</h2>
-<p>A nice UX touch: allow a second Ctrl+C to force immediate termination:</p>
-<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
-</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">stop </span><span>:= </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">NotifyContext</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGINT</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
-</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">stop</span><span>()
-</span><span>
-</span><span>    </span><span style="color:#65737e;">// ... start your server ...
-</span><span>
-</span><span>    &lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
-</span><span>    </span><span style="color:#bf616a;">stop</span><span>() </span><span style="color:#65737e;">// Stop catching signals—next one will kill us
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">shutting down gracefully, press Ctrl+C again to force</span><span>&quot;)
-</span><span>
-</span><span>    </span><span style="color:#bf616a;">shutdownCtx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithTimeout</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#d08770;">30</span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
-</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
-</span><span>    </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">Shutdown</span><span>(</span><span style="color:#bf616a;">shutdownCtx</span><span>)
-</span><span>}
-</span></code></pre>
-<p>After the first signal, <code>stop()</code> re-enables default signal handling. A second Ctrl+C terminates immediately.</p>
-<h2 id="common-gotchas">Common Gotchas</h2>
-<p><strong>Forgetting to call <code>signal.Stop</code></strong>: If you're done handling signals (say, in a test), call <code>signal.Stop(sigs)</code> to stop delivery. Otherwise signals keep coming.</p>
-<p><strong>Using the wrong signal in containers</strong>: Docker sends SIGTERM by default, but your app might only handle SIGINT. Always handle both.</p>
-<p><strong>Not giving cleanup enough time</strong>: That 30-second timeout isn't arbitrary. If your handlers might take a while, size it appropriately—but not so long that deploys take forever.</p>
-<p><strong>Testing signal handling</strong>: You can send signals programmatically with <code>syscall.Kill(syscall.Getpid(), syscall.SIGINT)</code>, which is useful for integration tests.</p>
-<h2 id="the-mental-model">The Mental Model</h2>
-<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>OS → signal → Go runtime → channel → your code → graceful shutdown
-</span></code></pre>
-<p>Go treats the OS as just another event source. Signals become channel values. You handle them with the same primitives you use for everything else in Go.</p>
-<p>This is one of those tiny design decisions that makes Go feel cohesive. No special signal handler syntax, no callback registration—just channels all the way down.</p>
-
-        </div>
 
                 </div>
             <div class="pagination">
