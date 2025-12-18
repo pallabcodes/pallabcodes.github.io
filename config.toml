@@ -34,6 +34,7 @@ author = "Pallab"
 menu_items = [
     { name = "blog", url = "$BASE_URL" },
     { name = "tags", url = "$BASE_URL/tags" },
+    { name = "resume", url = "$BASE_URL/resume" },
     { name = "about", url = "$BASE_URL/about" },
     { name = "github", url = "https://github.com/pallabcodes", newtab = true },
 ]
