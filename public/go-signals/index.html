@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <title>Pallab Codes</title>
+    <title>Handling OS Signals in Go | Pallab Codes</title>
     
     <meta http-equiv="content-type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
@@ -15,18 +15,18 @@
     
     <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
 
-    <meta name="description" content="Software Engineering Blog - Deep dives into systems, architecture, and code">
+    <meta name="description" content="A practical guide to graceful shutdown and signal handling in Go applications">
 
-    <meta property="og:description" content="Software Engineering Blog - Deep dives into systems, architecture, and code">
-    <meta property="og:title" content="Blog | Pallab Codes">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://pallabcodes.github.io/">
+    <meta property="og:description" content="A practical guide to graceful shutdown and signal handling in Go applications">
+    <meta property="og:title" content="Handling OS Signals in Go | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-signals/">
 
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:description" content="Software Engineering Blog - Deep dives into systems, architecture, and code">
-    <meta name="twitter:title" content="Blog | Pallab Codes">
+    <meta name="twitter:description" content="A practical guide to graceful shutdown and signal handling in Go applications">
+    <meta name="twitter:title" content="Handling OS Signals in Go | Pallab Codes">
     <meta property="twitter:domain" content="pallabcodes.github.io">
-    <meta property="twitter:url" content="https://pallabcodes.github.io/">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-signals/">
 
                 <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
     </head>
@@ -71,44 +71,8 @@
 
     <div class="content">
         
-        <div class="posts">
-                <div class="post on-list">
-                    
-    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-concurrency/">Concurrency Patterns in Go</a></h1>
-    <div class="post-meta-inline">
+    <div class="post">
         
-    <span class="post-date">
-            2024-12-08
-        </span>
-
-    </div>
-
-    
-        <span class="post-tags-inline">
-                :: tags:&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/programming/">#programming</a></span>
-    
-
-
-                    
-        <div class="post-content">
-            <p>Go's concurrency primitives are simple, but combining them effectively takes practice. Here are battle-tested patterns.</p>
-        </div>
-        <div>
-            <!-- &#xFE0E; -- force text style - some devices render this as emoji -->
-            <a class="read-more button" href="https://pallabcodes.github.io/go-concurrency/">
-                <span class="button__text">Read more</span>&nbsp;
-                <span class="button__icon">&#8617;&#xFE0E;</span>
-            </a>
-        </div>
-    
-
-                </div>
-            
-                <div class="post on-list">
-                    
     <h1 class="post-title"><a href="https://pallabcodes.github.io/go-signals/">Handling OS Signals in Go</a></h1>
     <div class="post-meta-inline">
         
@@ -126,8 +90,7 @@
                 <a class="post-tag" href="https://pallabcodes.github.io/tags/systems/">#systems</a></span>
     
 
-
-                    <div class="post-content">
+        <div class="post-content">
             <p>Every long-running Go program—whether it's an HTTP server, a worker process, or a CLI tool—needs to handle shutdown gracefully. You don't want your database connections left hanging or your in-flight requests aborted mid-write when someone hits Ctrl+C.</p>
 <p>Go makes this surprisingly elegant by treating OS signals as just another event source you can receive on a channel. Let's dig into how it actually works.</p>
 <h2 id="the-basic-pattern">The Basic Pattern</h2>
@@ -316,19 +279,25 @@
 
         </div>
 
-                </div>
-            <div class="pagination">
-                <div class="pagination__buttons">
-                    <span class="button previous">
-                        <a href="https://pallabcodes.github.io/">
-                            <span class="button__icon">←</span>&nbsp;
-                            <span class="button__text">Newer posts</span>
-                        </a>
-                    </span>
-                </div>
-            </div>
-        </div>
         
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-concurrency/">
+                                <span class="button__text">Concurrency Patterns in Go</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
     </div>
 
     
