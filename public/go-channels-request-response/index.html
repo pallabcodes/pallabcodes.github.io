@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Channels: The Request-Response Pattern Demystified | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Deep dive into how channels actually work - sender/receiver roles, request-response mechanics, and why resp must be a channel">
+
+    <meta property="og:description" content="Deep dive into how channels actually work - sender/receiver roles, request-response mechanics, and why resp must be a channel">
+    <meta property="og:title" content="Go Channels: The Request-Response Pattern Demystified | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-channels-request-response/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Deep dive into how channels actually work - sender/receiver roles, request-response mechanics, and why resp must be a channel">
+    <meta name="twitter:title" content="Go Channels: The Request-Response Pattern Demystified | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-channels-request-response/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-channels-request-response/">Go Channels: The Request-Response Pattern Demystified</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/channels/">#channels</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/internals/">#internals</a></span>
+    
+
+        <div class="post-content">
+            <p>This post explains the mechanics that confuse even experienced engineers: why sender/receiver roles flip per channel, how request-response actually works, and why the response field must be a channel.</p>
+<span id="continue-reading"></span><h2 id="the-core-confusion">The Core Confusion</h2>
+<p>When you first see this pattern:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan int
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;">// Reader side
+</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span><span>&lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp
+</span><span>
+</span><span style="color:#65737e;">// Owner side
+</span><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads
+</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span></code></pre>
+<p>Several things seem paradoxical:</p>
+<ul>
+<li>Who is the sender? Who is the receiver?</li>
+<li>The reader sends AND receives?</li>
+<li>Where does <code>read</code> come from in <code>read := &lt;-reads</code>?</li>
+<li>Why can't we just put the value in the struct?</li>
+</ul>
+<p>Let's resolve each one precisely.</p>
+<h2 id="roles-are-per-channel-not-per-goroutine">Roles Are Per Channel, Not Per Goroutine</h2>
+<p>This is the key insight that resolves most confusion:</p>
+<blockquote>
+<p><strong>A goroutine can be a sender on one channel and a receiver on another simultaneously.</strong></p>
+</blockquote>
+<p>There is no such thing as a "sender goroutine" globally. Roles are defined per channel operation.</p>
+<h3 id="channel-1-reads-the-request-channel">Channel 1: <code>reads</code> (the request channel)</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Reader goroutine: SENDER
+</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span><span>
+</span><span style="color:#65737e;">// Owner goroutine: RECEIVER
+</span><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads
+</span></code></pre>
+<p>Data flows: <code>Reader → reads → Owner</code></p>
+<h3 id="channel-2-read-resp-the-response-channel">Channel 2: <code>read.resp</code> (the response channel)</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Owner goroutine: SENDER
+</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span><span>
+</span><span style="color:#65737e;">// Reader goroutine: RECEIVER
+</span><span>&lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp
+</span></code></pre>
+<p>Data flows: <code>Owner → read.resp → Reader</code></p>
+<p>Same two goroutines. Two channels. <strong>Opposite directions</strong>.</p>
+<table><thead><tr><th>Goroutine</th><th>Channel</th><th>Role</th></tr></thead><tbody>
+<tr><td>Reader</td><td><code>reads</code></td><td>sender</td></tr>
+<tr><td>Owner</td><td><code>reads</code></td><td>receiver</td></tr>
+<tr><td>Owner</td><td><code>read.resp</code></td><td>sender</td></tr>
+<tr><td>Reader</td><td><code>read.resp</code></td><td>receiver</td></tr>
+</tbody></table>
+<h2 id="where-does-read-come-from">Where Does <code>read</code> Come From?</h2>
+<p>This line confuses people:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">case </span><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads</span><span>:
+</span></code></pre>
+<p>The variable <code>read</code> didn't exist before. So where does it get its value?</p>
+<p><strong>Answer</strong>: It's created and assigned at the moment a value is received.</p>
+<p>This is exactly equivalent to:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads
+</span></code></pre>
+<p>Just scoped to that <code>case</code> block.</p>
+<h3 id="step-by-step-at-runtime">Step-by-step at runtime:</h3>
+<p><strong>1. Reader creates a value</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">read </span><span>:= </span><span style="color:#bf616a;">readOp</span><span>{
+</span><span>    </span><span style="color:#bf616a;">key</span><span>:  </span><span style="color:#d08770;">3</span><span>,
+</span><span>    </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>),
+</span><span>}
+</span></code></pre>
+<p>Memory now contains:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>readOp {
+</span><span>  key: 3
+</span><span>  resp: 0xc00001a0c0  // channel pointer
+</span><span>}
+</span></code></pre>
+<p><strong>2. Reader sends it</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span></code></pre>
+<p>This blocks until someone receives.</p>
+<p><strong>3. Owner receives it</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">case </span><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads</span><span>:
+</span></code></pre>
+<p>At this moment:</p>
+<ul>
+<li>Go runtime matches send with receive</li>
+<li>The value is <strong>copied</strong> into the receiver's variable</li>
+<li>A new variable <code>read</code> is created in the owner's scope</li>
+<li>It's initialized with the received value</li>
+</ul>
+<p><strong>4. But the channel is shared</strong></p>
+<p>The struct is copied, but <code>read.resp</code> points to the <strong>same channel</strong> in both goroutines.</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Reader&#39;s read.resp: 0xc00001a0c0 ─┐
+</span><span>                                  ├─► Same channel object
+</span><span>Owner&#39;s read.resp:  0xc00001a0c0 ─┘
+</span></code></pre>
+<p>Channels are references. The struct copy contains the same channel pointer.</p>
+<h2 id="why-we-need-two-channels">Why We Need Two Channels</h2>
+<p>You might think: "Why not reply on <code>reads</code>?"</p>
+<p>Because <code>reads</code> carries <strong>requests from many goroutines</strong>. If you replied on <code>reads</code>:</p>
+<ul>
+<li>Any goroutine could receive the response</li>
+<li>Wrong requester gets the answer</li>
+<li>Total chaos</li>
+</ul>
+<p>Each request must carry its <strong>own private reply channel</strong>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>)
+</span></code></pre>
+<p>This ensures the response goes <strong>only to the requester</strong>.</p>
+<h2 id="why-resp-must-be-a-channel-not-a-field">Why <code>resp</code> Must Be a Channel (Not a Field)</h2>
+<p>This is the deepest insight.</p>
+<h3 id="what-if-resp-were-just-an-int">What if <code>resp</code> were just an <code>int</code>?</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">int  </span><span style="color:#65737e;">// result goes here?
+</span><span>}
+</span></code></pre>
+<p>And the owner did:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>= </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span></code></pre>
+<p><strong>This doesn't work because:</strong></p>
+<ul>
+<li>The struct is copied when sent through the channel</li>
+<li>Owner and reader have <strong>different struct instances</strong></li>
+<li>Mutating <code>read.resp</code> in the owner does nothing to the reader's copy</li>
+<li>There's no way for changes to "flow back"</li>
+</ul>
+<h3 id="what-if-resp-were-int">What if <code>resp</code> were <code>*int</code>?</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>*</span><span style="color:#b48ead;">int
+</span><span>}
+</span></code></pre>
+<p>This <strong>could</strong> work, but:</p>
+<ul>
+<li>Now you have shared memory</li>
+<li>Need synchronization (mutex or atomic)</li>
+<li>Breaks the message-passing model</li>
+<li>Reintroduces all the problems channels solve</li>
+</ul>
+<h3 id="why-chan-int-is-the-answer">Why <code>chan int</code> is the answer</h3>
+<p>Channels provide:</p>
+<ol>
+<li><strong>Memory transfer</strong> — values flow between goroutines</li>
+<li><strong>Synchronization</strong> — send/receive form synchronization points</li>
+<li><strong>Happens-before</strong> — memory ordering guarantees</li>
+<li><strong>Blocking semantics</strong> — reader waits until response arrives</li>
+</ol>
+<p>The channel is <strong>the return path</strong>, just like a function return value.</p>
+<h2 id="mental-model-channels-as-function-calls">Mental Model: Channels as Function Calls</h2>
+<p>Think of this:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span><span style="color:#bf616a;">value </span><span>:= &lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp
+</span></code></pre>
+<p>As equivalent to:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">value </span><span>:= </span><span style="color:#bf616a;">readFromState</span><span>(</span><span style="color:#bf616a;">key</span><span>)
+</span></code></pre>
+<p>Where:</p>
+<ul>
+<li><code>reads &lt;- read</code> is the function call</li>
+<li><code>&lt;-read.resp</code> is the return value</li>
+<li>The owner goroutine is the "callee"</li>
+</ul>
+<p>You've implemented <strong>blocking RPC over channels</strong>.</p>
+<h2 id="the-complete-timeline">The Complete Timeline</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Reader goroutine              Owner goroutine
+</span><span>     │                              │
+</span><span>     │  create readOp{key:3, resp}  │
+</span><span>     │                              │
+</span><span>     ├────── reads &lt;- read ─────────▶
+</span><span>     │                              │
+</span><span>     │         (blocked)            │ read := &lt;-reads
+</span><span>     │                              │
+</span><span>     │                              │ read.resp &lt;- state[3]
+</span><span>     │                              │
+</span><span>     ◀────── &lt;-read.resp ───────────┤
+</span><span>     │                              │
+</span><span>     │  got value                   │
+</span><span>     ▼                              ▼
+</span></code></pre>
+<p>Two synchronization points:</p>
+<ol>
+<li>Request handoff (<code>reads</code>)</li>
+<li>Response handoff (<code>read.resp</code>)</li>
+</ol>
+<h2 id="common-mistakes">Common Mistakes</h2>
+<h3 id="forgetting-to-create-the-response-channel">Forgetting to create the response channel</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">read </span><span>:= </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#d08770;">3</span><span>}  </span><span style="color:#65737e;">// resp is nil!
+</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span><span>&lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp  </span><span style="color:#65737e;">// panic: send on nil channel
+</span></code></pre>
+<h3 id="unbuffered-response-without-context">Unbuffered response without context</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>)  </span><span style="color:#65737e;">// unbuffered
+</span></code></pre>
+<p>If the reader abandons the request (timeout, disconnect), the owner blocks forever on:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">value  </span><span style="color:#65737e;">// no receiver, blocks forever
+</span></code></pre>
+<p>Fix: Buffer the response channel or use context:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>
+</span><span style="color:#65737e;">// OR with context
+</span><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">value</span><span>:
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>}
+</span></code></pre>
+<h3 id="reusing-response-channels">Reusing response channels</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>)
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">10</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">i</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}  </span><span style="color:#65737e;">// same channel!
+</span><span>    &lt;-</span><span style="color:#bf616a;">resp
+</span><span>}
+</span></code></pre>
+<p>This works for sequential requests, but if you parallelize, responses get mixed up. Each concurrent request needs its own channel.</p>
+<h2 id="the-official-name">The Official Name</h2>
+<p>This pattern has established names:</p>
+<ul>
+<li><strong>Actor Model</strong> — one goroutine owns state, others send messages</li>
+<li><strong>CSP (Communicating Sequential Processes)</strong> — Hoare's formal model</li>
+<li><strong>Request-Response over Message Passing</strong> — describes the two-channel pattern</li>
+<li><strong>"Share memory by communicating"</strong> — Go's phrasing</li>
+</ul>
+<p>It's the same model used in Erlang, Elixir, Akka, Orleans, and parts of Rust.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Sender/receiver roles are per channel</strong>, not per goroutine</li>
+<li><strong>Structs are copied</strong>, but channel references inside them are shared</li>
+<li><strong>The response must be a channel</strong> because struct mutations don't propagate</li>
+<li><strong>Two channels implement request-response</strong> — one for request, one for reply</li>
+<li><strong>This is blocking RPC</strong> implemented with channels</li>
+</ol>
+<p>Once you see channels as the communication mechanism between "caller" and "callee" across goroutine boundaries, the pattern becomes obvious.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-closures-goroutines/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Closures and Goroutines: The Capture Bug</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-actors-sharding/">
+                                <span class="button__text">Scaling Go Actors: Sharding State Owners</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>The Go Concurrency Toolbox: When to Use What | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Atomics, mutexes, channels, condition variables - a decision framework for choosing the right concurrency primitive">
+
+    <meta property="og:description" content="Atomics, mutexes, channels, condition variables - a decision framework for choosing the right concurrency primitive">
+    <meta property="og:title" content="The Go Concurrency Toolbox: When to Use What | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-concurrency-toolbox/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Atomics, mutexes, channels, condition variables - a decision framework for choosing the right concurrency primitive">
+    <meta name="twitter:title" content="The Go Concurrency Toolbox: When to Use What | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-concurrency-toolbox/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-concurrency-toolbox/">The Go Concurrency Toolbox: When to Use What</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/decision-framework/">#decision-framework</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a></span>
+    
+
+        <div class="post-content">
+            <p>Go gives you multiple concurrency primitives. Each exists for a reason. This post provides a decision framework for choosing the right one—not by feature comparison, but by workload analysis.</p>
+<span id="continue-reading"></span><h2 id="the-complete-toolbox">The Complete Toolbox</h2>
+<p>Go provides exactly these primitives for shared state:</p>
+<ol>
+<li><strong>Atomics</strong> (<code>sync/atomic</code>)</li>
+<li><strong>Mutexes</strong> (<code>sync.Mutex</code>, <code>sync.RWMutex</code>)</li>
+<li><strong>Channels</strong> (state ownership / actor pattern)</li>
+<li><strong>Condition variables</strong> (<code>sync.Cond</code>)</li>
+<li><strong>RCU-style patterns</strong> (advanced, using atomic pointer swaps)</li>
+</ol>
+<p>No transactional memory. No STM. No implicit locking. Go prefers explicitness.</p>
+<h2 id="1-atomics">1. Atomics</h2>
+<h3 id="what-they-are">What They Are</h3>
+<p>CPU-level atomic instructions. Lock-free. Very low overhead.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">counter </span><span style="color:#b48ead;">uint64
+</span><span>
+</span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">counter</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">LoadUint64</span><span>(&amp;</span><span style="color:#bf616a;">counter</span><span>)
+</span></code></pre>
+<h3 id="use-when">Use When</h3>
+<ul>
+<li>Variable is a <strong>simple primitive</strong> (int, uint, pointer)</li>
+<li>Operations are <strong>independent</strong> (no invariants with other variables)</li>
+<li>Hot path where lock overhead matters</li>
+</ul>
+<h3 id="examples">Examples</h3>
+<ul>
+<li>Request counters</li>
+<li>Throughput metrics</li>
+<li>Health flags</li>
+<li>Sequence numbers</li>
+<li>Feature flags (with atomic.Bool)</li>
+</ul>
+<h3 id="limitations">Limitations</h3>
+<ul>
+<li>Only primitive types</li>
+<li>No compound operations (check-then-act)</li>
+<li>Easy to misuse for complex logic</li>
+</ul>
+<h3 id="common-mistake">Common Mistake</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">if </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">LoadUint64</span><span>(&amp;</span><span style="color:#bf616a;">x</span><span>) &lt; </span><span style="color:#d08770;">100 </span><span>{
+</span><span>    </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">x</span><span>, </span><span style="color:#d08770;">1</span><span>)  </span><span style="color:#65737e;">// Race: x might be &gt;= 100 now
+</span><span>}
+</span></code></pre>
+<p>This is NOT atomic. The check and add are separate operations.</p>
+<h2 id="2-mutexes">2. Mutexes</h2>
+<h3 id="what-they-are-1">What They Are</h3>
+<p>Mutual exclusion locks. Guard shared memory. Classic approach.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">mu sync</span><span>.</span><span style="color:#b48ead;">Mutex
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">state </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">int
+</span><span>
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">val
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span></code></pre>
+<h3 id="use-when-1">Use When</h3>
+<ul>
+<li>Multiple goroutines read/write shared structures</li>
+<li>State is moderately complex</li>
+<li>Performance matters</li>
+<li>Invariants span multiple fields</li>
+</ul>
+<h3 id="rwmutex-for-read-heavy">RWMutex for Read-Heavy</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">mu sync</span><span>.</span><span style="color:#b48ead;">RWMutex
+</span><span>
+</span><span style="color:#65737e;">// Readers (concurrent)
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">RLock</span><span>()
+</span><span style="color:#bf616a;">val </span><span>:= </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">key</span><span>]
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">RUnlock</span><span>()
+</span><span>
+</span><span style="color:#65737e;">// Writers (exclusive)
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">val
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span></code></pre>
+<h3 id="trade-offs">Trade-offs</h3>
+<table><thead><tr><th>Pros</th><th>Cons</th></tr></thead><tbody>
+<tr><td>Flexible</td><td>Discipline-based</td></tr>
+<tr><td>Performant</td><td>Easy to forget lock</td></tr>
+<tr><td>Well-understood</td><td>Deadlock risk</td></tr>
+<tr><td>Standard</td><td>Invariants spread across code</td></tr>
+</tbody></table>
+<h3 id="common-mistakes">Common Mistakes</h3>
+<p><strong>Forgetting to unlock</strong>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">err  </span><span style="color:#65737e;">// Lock never released!
+</span><span>}
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span></code></pre>
+<p>Fix: Always use <code>defer mu.Unlock()</code> or be very careful.</p>
+<p><strong>Wrong lock granularity</strong>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">expensiveOperation</span><span>()  </span><span style="color:#65737e;">// Holds lock too long
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span></code></pre>
+<p><strong>Lock ordering violations</strong>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Goroutine 1        // Goroutine 2
+</span><span style="color:#bf616a;">mu1</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()            </span><span style="color:#bf616a;">mu2</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">mu2</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()            </span><span style="color:#bf616a;">mu1</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()  </span><span style="color:#65737e;">// Deadlock
+</span></code></pre>
+<h2 id="3-channels-state-ownership">3. Channels (State Ownership)</h2>
+<h3 id="what-they-are-2">What They Are</h3>
+<p>Message-passing synchronization. One goroutine owns the data. Others communicate.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">requests </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">k</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">ch</span><span>}
+</span><span style="color:#bf616a;">value </span><span>:= &lt;-</span><span style="color:#bf616a;">ch
+</span></code></pre>
+<h3 id="use-when-2">Use When</h3>
+<ul>
+<li>State is complex</li>
+<li>Invariants matter</li>
+<li>Correctness &gt; raw throughput</li>
+<li>You want ownership enforced by design</li>
+</ul>
+<h3 id="trade-offs-1">Trade-offs</h3>
+<table><thead><tr><th>Pros</th><th>Cons</th></tr></thead><tbody>
+<tr><td>No accidental sharing</td><td>Serialized access</td></tr>
+<tr><td>Clear ownership</td><td>Channel overhead</td></tr>
+<tr><td>Composable</td><td>Potential bottleneck</td></tr>
+<tr><td>Context integration</td><td>More allocations</td></tr>
+</tbody></table>
+<h3 id="when-not-to-use">When NOT to Use</h3>
+<ul>
+<li>Simple counters (use atomics)</li>
+<li>Read-heavy caches (use RWMutex)</li>
+<li>Ultra-high throughput (profile first)</li>
+</ul>
+<h2 id="4-condition-variables">4. Condition Variables</h2>
+<h3 id="what-they-are-3">What They Are</h3>
+<p>Signaling mechanism for goroutines waiting on a condition. Used with mutexes.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">mu sync</span><span>.</span><span style="color:#b48ead;">Mutex
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">cond </span><span>= </span><span style="color:#bf616a;">sync</span><span>.</span><span style="color:#bf616a;">NewCond</span><span>(&amp;</span><span style="color:#bf616a;">mu</span><span>)
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">ready </span><span style="color:#b48ead;">bool
+</span><span>
+</span><span style="color:#65737e;">// Waiter
+</span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">L</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#b48ead;">for </span><span>!</span><span style="color:#bf616a;">ready </span><span>{
+</span><span>    </span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()  </span><span style="color:#65737e;">// Releases lock, waits, reacquires
+</span><span>}
+</span><span style="color:#65737e;">// proceed
+</span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">L</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span><span>
+</span><span style="color:#65737e;">// Signaler
+</span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">L</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">ready </span><span>= </span><span style="color:#d08770;">true
+</span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">Signal</span><span>()  </span><span style="color:#65737e;">// or cond.Broadcast()
+</span><span style="color:#bf616a;">cond</span><span>.</span><span style="color:#bf616a;">L</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span></code></pre>
+<h3 id="use-when-3">Use When</h3>
+<ul>
+<li>Goroutines must wait for a complex condition</li>
+<li>Producer-consumer with special logic</li>
+<li>Classic thread coordination patterns</li>
+</ul>
+<h3 id="in-practice">In Practice</h3>
+<p>Rare in idiomatic Go. Channels usually simpler:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>&lt;-</span><span style="color:#bf616a;">readyChan  </span><span style="color:#65737e;">// Wait for signal
+</span></code></pre>
+<p>Use <code>sync.Cond</code> when you need:</p>
+<ul>
+<li>Broadcast to many waiters</li>
+<li>Complex predicates</li>
+<li>Integration with existing mutex-protected state</li>
+</ul>
+<h2 id="5-rcu-style-patterns-advanced">5. RCU-Style Patterns (Advanced)</h2>
+<h3 id="what-it-is">What It Is</h3>
+<p>Copy-on-write with atomic pointer swaps. Many readers, rare writers.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>Config </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#65737e;">// ... fields
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">configPtr atomic</span><span>.</span><span style="color:#b48ead;">Pointer</span><span>[</span><span style="color:#bf616a;">Config</span><span>]
+</span><span>
+</span><span style="color:#65737e;">// Readers (no lock)
+</span><span style="color:#bf616a;">cfg </span><span>:= </span><span style="color:#bf616a;">configPtr</span><span>.</span><span style="color:#bf616a;">Load</span><span>()
+</span><span style="color:#bf616a;">use</span><span>(</span><span style="color:#bf616a;">cfg</span><span>)
+</span><span>
+</span><span style="color:#65737e;">// Writer (rare)
+</span><span style="color:#bf616a;">newCfg </span><span>:= &amp;</span><span style="color:#bf616a;">Config</span><span>{...}
+</span><span style="color:#bf616a;">configPtr</span><span>.</span><span style="color:#bf616a;">Store</span><span>(</span><span style="color:#bf616a;">newCfg</span><span>)
+</span></code></pre>
+<h3 id="use-when-4">Use When</h3>
+<ul>
+<li>Extremely read-heavy (1000:1 read/write ratio)</li>
+<li>Config hot-reload</li>
+<li>Version bumps</li>
+<li>Lookup tables that rarely change</li>
+</ul>
+<h3 id="trade-offs-2">Trade-offs</h3>
+<ul>
+<li>Very fast reads (no synchronization)</li>
+<li>Writers must create full copy</li>
+<li>Memory overhead</li>
+<li>Complex if state is mutable</li>
+</ul>
+<h2 id="the-decision-framework">The Decision Framework</h2>
+<p>Don't choose by feature. Choose by workload.</p>
+<h3 id="question-1-what-kind-of-state">Question 1: What kind of state?</h3>
+<table><thead><tr><th>State Type</th><th>Best Tool</th></tr></thead><tbody>
+<tr><td>Single counter</td><td>Atomic</td></tr>
+<tr><td>Single flag</td><td>Atomic</td></tr>
+<tr><td>Small struct, frequent mutation</td><td>Mutex</td></tr>
+<tr><td>Complex invariants</td><td>Channel-owned</td></tr>
+<tr><td>Large read-heavy data</td><td>RWMutex or RCU</td></tr>
+</tbody></table>
+<h3 id="question-2-access-pattern">Question 2: Access pattern?</h3>
+<table><thead><tr><th>Pattern</th><th>Best Tool</th></tr></thead><tbody>
+<tr><td>Many writers, simple ops</td><td>Atomic</td></tr>
+<tr><td>Few writers, many readers</td><td>RWMutex</td></tr>
+<tr><td>Mixed, with invariants</td><td>Mutex or Channel</td></tr>
+<tr><td>Complex coordination</td><td>Channel</td></tr>
+</tbody></table>
+<h3 id="question-3-failure-mode-preference">Question 3: Failure mode preference?</h3>
+<table><thead><tr><th>Preferred Failure</th><th>Best Tool</th></tr></thead><tbody>
+<tr><td>Race detector catches it</td><td>Mutex</td></tr>
+<tr><td>Design prevents bugs</td><td>Channel</td></tr>
+<tr><td>Performance over safety</td><td>Atomic</td></tr>
+</tbody></table>
+<h3 id="question-4-team-context">Question 4: Team context?</h3>
+<table><thead><tr><th>Context</th><th>Best Tool</th></tr></thead><tbody>
+<tr><td>Strict code review, experienced team</td><td>Mutex</td></tr>
+<tr><td>Junior team, critical correctness</td><td>Channel</td></tr>
+<tr><td>Performance-critical, well-tested</td><td>Atomic</td></tr>
+</tbody></table>
+<h2 id="decision-cheat-sheet">Decision Cheat Sheet</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>┌─────────────────────────────────────────┐
+</span><span>│  Is it a simple counter/flag?           │
+</span><span>│     YES → Atomic                        │
+</span><span>│     NO ↓                                │
+</span><span>├─────────────────────────────────────────┤
+</span><span>│  Is it read-heavy (100:1+)?             │
+</span><span>│     YES → RWMutex or RCU                │
+</span><span>│     NO ↓                                │
+</span><span>├─────────────────────────────────────────┤
+</span><span>│  Are there complex invariants?          │
+</span><span>│     YES → Channel-owned goroutine       │
+</span><span>│     NO ↓                                │
+</span><span>├─────────────────────────────────────────┤
+</span><span>│  Is throughput critical?                │
+</span><span>│     YES → Mutex (profile to confirm)    │
+</span><span>│     NO → Channel (safer default)        │
+</span><span>└─────────────────────────────────────────┘
+</span></code></pre>
+<h2 id="workload-examples">Workload Examples</h2>
+<h3 id="large-file-processing">Large File Processing</h3>
+<p><strong>Pattern</strong>: Pipeline + fan-out/fan-in</p>
+<p><strong>Tools</strong>:</p>
+<ul>
+<li>Channels for data flow between stages</li>
+<li>Worker pools for parallelism</li>
+<li>Atomics for progress counters</li>
+</ul>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Reader → Parser → Workers → Aggregator → Writer
+</span><span>         (channels)  (pool)   (channel)
+</span></code></pre>
+<h3 id="in-memory-cache">In-Memory Cache</h3>
+<p><strong>Pattern</strong>: Depends on access ratio</p>
+<p><strong>If read-heavy</strong>: RWMutex or sharded maps</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>Cache </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">mu sync</span><span>.</span><span style="color:#b48ead;">RWMutex
+</span><span>    </span><span style="color:#bf616a;">m  </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">Value
+</span><span>}
+</span></code></pre>
+<p><strong>If write-heavy</strong>: Channel-owned with batching</p>
+<h3 id="rate-limiter">Rate Limiter</h3>
+<p><strong>Pattern</strong>: State owner</p>
+<p><strong>Tools</strong>: Channel-owned goroutine</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>RateLimiter </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">requests </span><span style="color:#b48ead;">chan request
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#b48ead;">RateLimiter</span><span>) </span><span style="color:#8fa1b3;">Allow</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) </span><span style="color:#b48ead;">bool </span><span>{
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan bool</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">requests </span><span>&lt;- </span><span style="color:#bf616a;">request</span><span>{</span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>, </span><span style="color:#bf616a;">ctx</span><span>: </span><span style="color:#bf616a;">ctx</span><span>}
+</span><span>    </span><span style="color:#b48ead;">return </span><span>&lt;-</span><span style="color:#bf616a;">resp
+</span><span>}
+</span></code></pre>
+<h3 id="metrics-collection">Metrics Collection</h3>
+<p><strong>Pattern</strong>: Distributed counters</p>
+<p><strong>Tools</strong>: Atomics (or sharded atomics)</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>Metrics </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">requests atomic</span><span>.</span><span style="color:#b48ead;">Uint64
+</span><span>    </span><span style="color:#bf616a;">errors   atomic</span><span>.</span><span style="color:#b48ead;">Uint64
+</span><span>    </span><span style="color:#bf616a;">latency  atomic</span><span>.</span><span style="color:#b48ead;">Uint64  </span><span style="color:#65737e;">// For histogram, need more
+</span><span>}
+</span></code></pre>
+<h3 id="configuration-hot-reload">Configuration Hot-Reload</h3>
+<p><strong>Pattern</strong>: RCU</p>
+<p><strong>Tools</strong>: Atomic pointer swap</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">config atomic</span><span>.</span><span style="color:#b48ead;">Pointer</span><span>[</span><span style="color:#bf616a;">Config</span><span>]
+</span><span>
+</span><span style="color:#65737e;">// In reload handler
+</span><span style="color:#bf616a;">newConfig </span><span>:= </span><span style="color:#bf616a;">parseConfig</span><span>()
+</span><span style="color:#bf616a;">config</span><span>.</span><span style="color:#bf616a;">Store</span><span>(</span><span style="color:#bf616a;">newConfig</span><span>)
+</span><span>
+</span><span style="color:#65737e;">// In request handlers
+</span><span style="color:#bf616a;">cfg </span><span>:= </span><span style="color:#bf616a;">config</span><span>.</span><span style="color:#bf616a;">Load</span><span>()
+</span></code></pre>
+<h2 id="the-golden-rule">The Golden Rule</h2>
+<blockquote>
+<p><strong>If you must share memory, protect it.</strong>
+<strong>If you can avoid sharing memory, communicate instead.</strong></p>
+</blockquote>
+<p>This is the principle behind all Go concurrency guidance. The tools exist to implement it in different contexts.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Atomics</strong>: Simple values, independent operations, metrics</li>
+<li><strong>Mutexes</strong>: Structured state, performance-critical, team discipline</li>
+<li><strong>Channels</strong>: Complex invariants, ownership matters, correctness-first</li>
+<li><strong>Cond</strong>: Rare, for complex waiting conditions</li>
+<li><strong>RCU</strong>: Extreme read-heavy, rare writes</li>
+</ol>
+<p>There's no universal best. There's only best <strong>for this workload, this team, this context</strong>.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-scheduler-explained/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">The Go Scheduler: G-P-M Model Explained</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-closures-goroutines/">
+                                <span class="button__text">Go Closures and Goroutines: The Capture Bug</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

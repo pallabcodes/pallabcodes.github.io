@@ -9,6 +9,38 @@
       <atom:link href="https://pallabcodes.github.io/rss.xml" rel="self" type="application/rss+xml"/>
       <lastBuildDate>Fri, 19 Dec 2025 00:00:00 +0000</lastBuildDate>
       <item>
+          <title>Scaling Go Actors: Sharding State Owners</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-actors-sharding/</link>
+          <guid>https://pallabcodes.github.io/go-actors-sharding/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-actors-sharding/">&lt;p&gt;The actor pattern serializes access to state through a single goroutine. This guarantees correctness but creates a throughput ceiling. When that becomes your bottleneck, the answer is sharding.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Go Channels: The Request-Response Pattern Demystified</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-channels-request-response/</link>
+          <guid>https://pallabcodes.github.io/go-channels-request-response/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-channels-request-response/">&lt;p&gt;This post explains the mechanics that confuse even experienced engineers: why sender&#x2F;receiver roles flip per channel, how request-response actually works, and why the response field must be a channel.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Go Closures and Goroutines: The Capture Bug</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-closures-goroutines/</link>
+          <guid>https://pallabcodes.github.io/go-closures-goroutines/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-closures-goroutines/">&lt;p&gt;Every Go developer hits this bug at least once. Understanding why it happens requires understanding how closures work. This post explains the mechanics precisely.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>The Go Concurrency Toolbox: When to Use What</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-concurrency-toolbox/</link>
+          <guid>https://pallabcodes.github.io/go-concurrency-toolbox/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-concurrency-toolbox/">&lt;p&gt;Go gives you multiple concurrency primitives. Each exists for a reason. This post provides a decision framework for choosing the right one—not by feature comparison, but by workload analysis.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>The Go Scheduler: G-P-M Model Explained</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>

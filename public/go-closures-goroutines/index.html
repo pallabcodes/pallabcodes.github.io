@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Closures and Goroutines: The Capture Bug | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Why loop variables in goroutines break, how closures capture variables not values, and the correct patterns">
+
+    <meta property="og:description" content="Why loop variables in goroutines break, how closures capture variables not values, and the correct patterns">
+    <meta property="og:title" content="Go Closures and Goroutines: The Capture Bug | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-closures-goroutines/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Why loop variables in goroutines break, how closures capture variables not values, and the correct patterns">
+    <meta name="twitter:title" content="Go Closures and Goroutines: The Capture Bug | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-closures-goroutines/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-closures-goroutines/">Go Closures and Goroutines: The Capture Bug</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/closures/">#closures</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/gotchas/">#gotchas</a></span>
+    
+
+        <div class="post-content">
+            <p>Every Go developer hits this bug at least once. Understanding why it happens requires understanding how closures work. This post explains the mechanics precisely.</p>
+<span id="continue-reading"></span><h2 id="the-bug">The Bug</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">i</span><span>)
+</span><span>    }()
+</span><span>}
+</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
+</span></code></pre>
+<p>Expected output:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>0
+</span><span>1
+</span><span>2
+</span></code></pre>
+<p>Actual output (typically):</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>3
+</span><span>3
+</span><span>3
+</span></code></pre>
+<p>Why?</p>
+<h2 id="closures-capture-variables-not-values">Closures Capture Variables, Not Values</h2>
+<p>This is the fundamental rule:</p>
+<blockquote>
+<p><strong>A closure captures a reference to the variable, not a copy of its value.</strong></p>
+</blockquote>
+<p>In the loop:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">i</span><span>)  </span><span style="color:#65737e;">// Captures variable &#39;i&#39;, not value
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>There is <strong>one variable <code>i</code></strong>. All three goroutines capture a reference to that same variable.</p>
+<p>By the time the goroutines actually run:</p>
+<ul>
+<li>The loop has finished</li>
+<li><code>i</code> equals 3 (the exit condition)</li>
+<li>All goroutines read <code>i</code>, which is 3</li>
+</ul>
+<h2 id="timeline-visualization">Timeline Visualization</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Time →
+</span><span>
+</span><span>Main goroutine:
+</span><span>  i=0, spawn goroutine (captures &amp;i)
+</span><span>  i=1, spawn goroutine (captures &amp;i)
+</span><span>  i=2, spawn goroutine (captures &amp;i)
+</span><span>  i=3, loop exits
+</span><span>  sleep...
+</span><span>
+</span><span>Goroutine 1 runs: reads i → 3
+</span><span>Goroutine 2 runs: reads i → 3
+</span><span>Goroutine 3 runs: reads i → 3
+</span></code></pre>
+<p>The goroutines don't run immediately. By the time they execute, <code>i</code> has changed.</p>
+<h2 id="why-this-happens-language-mechanics">Why This Happens (Language Mechanics)</h2>
+<h3 id="what-a-closure-is">What a closure is</h3>
+<p>A closure is a function that references variables from its enclosing scope:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">outer</span><span>() </span><span style="color:#b48ead;">func</span><span>() </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#bf616a;">x </span><span>:= </span><span style="color:#d08770;">10
+</span><span>    </span><span style="color:#b48ead;">return func</span><span>() </span><span style="color:#b48ead;">int </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">x  </span><span style="color:#65737e;">// This is a closure over &#39;x&#39;
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>The returned function "closes over" <code>x</code>. It doesn't copy <code>x</code>—it keeps a reference to the same memory location.</p>
+<h3 id="loop-variables-are-one-variable">Loop variables are one variable</h3>
+<p>In Go (before 1.22), the loop:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span></code></pre>
+<p>Creates <strong>one variable <code>i</code></strong> that is mutated each iteration. Not three separate variables.</p>
+<p>So every closure that captures <code>i</code> captures the <strong>same variable</strong>.</p>
+<h2 id="fix-1-shadow-the-variable">Fix 1: Shadow the Variable</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#bf616a;">i  </span><span style="color:#65737e;">// Shadow with a local copy
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">i</span><span>)  </span><span style="color:#65737e;">// Captures the local &#39;i&#39;
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>Now each iteration:</p>
+<ul>
+<li>Creates a <strong>new local variable</strong> named <code>i</code></li>
+<li>Copies the current value into it</li>
+<li>The closure captures the local, not the loop variable</li>
+</ul>
+<p>Each goroutine captures a <strong>different variable</strong> with a <strong>different value</strong>.</p>
+<h2 id="fix-2-pass-as-function-argument">Fix 2: Pass as Function Argument</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>(</span><span style="color:#bf616a;">n </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">n</span><span>)
+</span><span>    }(</span><span style="color:#bf616a;">i</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Here:</p>
+<ul>
+<li><code>i</code> is passed as an argument at spawn time</li>
+<li>The value is copied into parameter <code>n</code></li>
+<li>The closure uses <code>n</code>, which is a per-call copy</li>
+</ul>
+<p>This is often cleaner than shadowing.</p>
+<h2 id="fix-3-go-1-22-changes">Fix 3: Go 1.22+ Changes</h2>
+<p>Starting with Go 1.22, loop variables are captured per-iteration by default:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Go 1.22+
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">i</span><span>)  </span><span style="color:#65737e;">// Now works correctly!
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>The compiler creates a new variable for each iteration. The capture bug is eliminated.</p>
+<p><strong>But</strong>: You should still understand the old behavior because:</p>
+<ul>
+<li>Legacy code exists</li>
+<li>The mental model matters for other closure scenarios</li>
+<li>Not everyone runs Go 1.22+</li>
+</ul>
+<h2 id="why-the-original-example-didn-t-break">Why the Original Example Didn't Break</h2>
+<p>In the actor pattern code:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">r </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">r </span><span>&lt; </span><span style="color:#d08770;">100</span><span>; </span><span style="color:#bf616a;">r</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">for </span><span>{
+</span><span>            </span><span style="color:#bf616a;">read </span><span>:= </span><span style="color:#bf616a;">readOp</span><span>{
+</span><span>                </span><span style="color:#bf616a;">key</span><span>:  </span><span style="color:#bf616a;">rand</span><span>.</span><span style="color:#bf616a;">Intn</span><span>(</span><span style="color:#d08770;">5</span><span>),
+</span><span>                </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>),
+</span><span>            }
+</span><span>            </span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">read
+</span><span>            &lt;-</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp
+</span><span>            </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">readOps</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>            </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>)
+</span><span>        }
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p><strong>Why doesn't this break?</strong></p>
+<p>Because <code>r</code> is <strong>never used inside the goroutine</strong>. The closure doesn't capture <code>r</code>. No bug.</p>
+<p>If you did:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">r </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">r </span><span>&lt; </span><span style="color:#d08770;">100</span><span>; </span><span style="color:#bf616a;">r</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">Reader</span><span>&quot;, </span><span style="color:#bf616a;">r</span><span>)  </span><span style="color:#65737e;">// BUG: captures r
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>Then you'd see the bug. All would print "Reader 100".</p>
+<h2 id="related-pattern-range-captures">Related Pattern: Range Captures</h2>
+<p>The same bug occurs with <code>range</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Bug
+</span><span style="color:#bf616a;">items </span><span>:= []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">a</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">b</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">c</span><span>&quot;}
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">_</span><span>, </span><span style="color:#bf616a;">item </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">items </span><span>{
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">item</span><span>)
+</span><span>    }()
+</span><span>}
+</span><span style="color:#65737e;">// Prints &quot;c&quot; three times
+</span></code></pre>
+<p>Fix:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">_</span><span>, </span><span style="color:#bf616a;">item </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">items </span><span>{
+</span><span>    </span><span style="color:#bf616a;">item </span><span>:= </span><span style="color:#bf616a;">item  </span><span style="color:#65737e;">// Shadow
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">item</span><span>)
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>Or:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">_</span><span>, </span><span style="color:#bf616a;">item </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">items </span><span>{
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>(</span><span style="color:#bf616a;">s </span><span style="color:#b48ead;">string</span><span>) {
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">s</span><span>)
+</span><span>    }(</span><span style="color:#bf616a;">item</span><span>)
+</span><span>}
+</span></code></pre>
+<h2 id="the-var-vs-question">The <code>var</code> vs <code>:=</code> Question</h2>
+<p>Why do we sometimes use <code>var</code> instead of <code>:=</code>?</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">readOps </span><span style="color:#b48ead;">uint64
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">writeOps </span><span style="color:#b48ead;">uint64
+</span></code></pre>
+<p>Two reasons:</p>
+<h3 id="1-addressability">1. Addressability</h3>
+<p>Atomics require a pointer:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">readOps</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span></code></pre>
+<p>You need a stable address. <code>var</code> ensures this.</p>
+<h3 id="2-initialization-clarity">2. Initialization clarity</h3>
+<p><code>var x uint64</code> clearly means "zero-initialized counter."</p>
+<p><code>:=</code> would require:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">readOps </span><span>:= </span><span style="color:#bf616a;">uint64</span><span>(</span><span style="color:#d08770;">0</span><span>)
+</span></code></pre>
+<p>More noise, same result.</p>
+<h2 id="when-to-use-which">When to Use Which</h2>
+<table><thead><tr><th>Scenario</th><th>Recommendation</th></tr></thead><tbody>
+<tr><td>Loop variable in goroutine</td><td>Shadow it or pass as arg</td></tr>
+<tr><td>Counter for atomics</td><td>Use <code>var</code></td></tr>
+<tr><td>Complex state</td><td>Be explicit about scope</td></tr>
+<tr><td>Go 1.22+ new code</td><td>Capture works, but consider clarity</td></tr>
+</tbody></table>
+<h2 id="detecting-the-bug">Detecting the Bug</h2>
+<h3 id="go-vet">Go vet</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">go</span><span> vet ./...
+</span></code></pre>
+<p>Warns about loop variable capture:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>loop variable i captured by func literal
+</span></code></pre>
+<h3 id="race-detector">Race detector</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">go</span><span> run</span><span style="color:#bf616a;"> -race</span><span> ./...
+</span></code></pre>
+<p>May detect if the captured variable is also written.</p>
+<h3 id="code-review">Code review</h3>
+<p>Look for pattern:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">x </span><span>:= ... {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        ... </span><span style="color:#bf616a;">x </span><span>...  </span><span style="color:#65737e;">// Captured!
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Closures capture variables, not values</strong> — the reference, not a copy</li>
+<li><strong>Loop variables are one variable</strong> (before Go 1.22) — mutated each iteration</li>
+<li><strong>Shadow or pass as argument</strong> — to get a per-iteration copy</li>
+<li><strong>Go 1.22 fixes this</strong> — but understand the mechanics anyway</li>
+<li><strong>If you don't use the variable, no bug</strong> — capture only happens on reference</li>
+</ol>
+<p>This is one of Go's most common gotchas. Now you understand why it happens at the language level.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-concurrency-toolbox/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">The Go Concurrency Toolbox: When to Use What</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-channels-request-response/">
+                                <span class="button__text">Go Channels: The Request-Response Pattern Demystified</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

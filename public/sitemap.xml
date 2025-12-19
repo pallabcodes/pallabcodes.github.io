@@ -7,6 +7,22 @@
         <loc>https://pallabcodes.github.io/about/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/go-actors-sharding/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-channels-request-response/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-closures-goroutines/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-concurrency-toolbox/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/go-scheduler-explained/</loc>
         <lastmod>2025-12-19</lastmod>
     </url>
@@ -67,7 +83,16 @@
         <loc>https://pallabcodes.github.io/tags/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/tags/actors/</loc>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/tags/backpressure/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/channels/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/closures/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/concurrency/</loc>
@@ -76,10 +101,16 @@
         <loc>https://pallabcodes.github.io/tags/context/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/tags/decision-framework/</loc>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/tags/fundamentals/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/go/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/gotchas/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/infrastructure/</loc>
@@ -100,10 +131,16 @@
         <loc>https://pallabcodes.github.io/tags/production/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/tags/scaling/</loc>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/tags/scheduler/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/security/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/sharding/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/system-design/</loc>

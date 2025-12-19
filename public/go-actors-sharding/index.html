@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Scaling Go Actors: Sharding State Owners | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="When a single state-owner goroutine becomes a bottleneck, shard by key to scale while preserving correctness">
+
+    <meta property="og:description" content="When a single state-owner goroutine becomes a bottleneck, shard by key to scale while preserving correctness">
+    <meta property="og:title" content="Scaling Go Actors: Sharding State Owners | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-actors-sharding/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="When a single state-owner goroutine becomes a bottleneck, shard by key to scale while preserving correctness">
+    <meta name="twitter:title" content="Scaling Go Actors: Sharding State Owners | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-actors-sharding/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-actors-sharding/">Scaling Go Actors: Sharding State Owners</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/actors/">#actors</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/scaling/">#scaling</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/sharding/">#sharding</a></span>
+    
+
+        <div class="post-content">
+            <p>The actor pattern serializes access to state through a single goroutine. This guarantees correctness but creates a throughput ceiling. When that becomes your bottleneck, the answer is sharding.</p>
+<span id="continue-reading"></span><h2 id="the-limitation">The Limitation</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>many goroutines
+</span><span>      ↓
+</span><span>   ONE goroutine (state owner)
+</span><span>      ↓
+</span><span>   serialized access
+</span></code></pre>
+<p>This design guarantees correctness, but:</p>
+<ul>
+<li>All requests are serialized</li>
+<li>Throughput capped by one CPU core</li>
+<li>Latency increases under load</li>
+</ul>
+<p>This isn't a bug—it's a design trade-off. And at some scale, you'll hit it.</p>
+<h2 id="the-scaling-idea-shard-by-key">The Scaling Idea: Shard by Key</h2>
+<p>Instead of one state owner:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>StateOwner
+</span></code></pre>
+<p>Create many, each owning part of the state:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>StateOwner[0]  → map[0..999]
+</span><span>StateOwner[1]  → map[1000..1999]
+</span><span>StateOwner[2]  → map[2000..2999]
+</span><span>...
+</span></code></pre>
+<p>Each owner:</p>
+<ul>
+<li>Has its own map</li>
+<li>Has its own channels</li>
+<li>Processes requests independently</li>
+<li>Never touches another owner's data</li>
+</ul>
+<h2 id="how-sharding-works">How Sharding Works</h2>
+<h3 id="before-single-owner">Before: Single Owner</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>reads/writes ───► owner ───► state
+</span></code></pre>
+<h3 id="after-sharded-owners">After: Sharded Owners</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>                 ┌─► owner 0 ──► state 0
+</span><span>reads/writes ────┼─► owner 1 ──► state 1
+</span><span>                 ├─► owner 2 ──► state 2
+</span><span>                 └─► owner 3 ──► state 3
+</span></code></pre>
+<h3 id="the-routing-rule">The Routing Rule</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ownerIndex </span><span>:= </span><span style="color:#bf616a;">hash</span><span>(</span><span style="color:#bf616a;">key</span><span>) % </span><span style="color:#bf616a;">numShards
+</span></code></pre>
+<p>This ensures:</p>
+<ul>
+<li>Same key → same owner (always)</li>
+<li>No cross-owner races</li>
+<li>Per-key linearizability preserved</li>
+</ul>
+<h2 id="implementation">Implementation</h2>
+<h3 id="shard-structure">Shard Structure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">const </span><span style="color:#bf616a;">numShards </span><span>= </span><span style="color:#d08770;">32
+</span><span>
+</span><span style="color:#b48ead;">type </span><span>shard </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">reads  </span><span style="color:#b48ead;">chan readOp
+</span><span>    </span><span style="color:#bf616a;">writes </span><span style="color:#b48ead;">chan writeOp
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">shards </span><span>[</span><span style="color:#bf616a;">numShards</span><span>]*</span><span style="color:#b48ead;">shard
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">init</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#bf616a;">numShards</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>        </span><span style="color:#bf616a;">s </span><span>:= &amp;</span><span style="color:#bf616a;">shard</span><span>{
+</span><span>            </span><span style="color:#bf616a;">reads</span><span>:  </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan readOp</span><span>),
+</span><span>            </span><span style="color:#bf616a;">writes</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan writeOp</span><span>),
+</span><span>        }
+</span><span>        </span><span style="color:#bf616a;">shards</span><span>[</span><span style="color:#bf616a;">i</span><span>] = </span><span style="color:#bf616a;">s
+</span><span>        </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">run</span><span>()
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="shard-owner">Shard Owner</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">shard</span><span>) </span><span style="color:#8fa1b3;">run</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">state </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">int</span><span>]</span><span style="color:#b48ead;">int</span><span>)
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r </span><span>:= &lt;-</span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">reads</span><span>:
+</span><span>            </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w </span><span>:= &lt;-</span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">writes</span><span>:
+</span><span>            </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">val
+</span><span>            </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#d08770;">true
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Each shard is an independent actor. Same pattern, multiplied.</p>
+<h3 id="routing-requests">Routing Requests</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">getShard</span><span>(</span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">int</span><span>) *</span><span style="color:#b48ead;">shard </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">shards</span><span>[</span><span style="color:#bf616a;">key</span><span>%</span><span style="color:#bf616a;">numShards</span><span>]
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">read</span><span>(</span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">int</span><span>) </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#bf616a;">s </span><span>:= </span><span style="color:#bf616a;">getShard</span><span>(</span><span style="color:#bf616a;">key</span><span>)
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">key</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}
+</span><span>    </span><span style="color:#b48ead;">return </span><span>&lt;-</span><span style="color:#bf616a;">resp
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">write</span><span>(</span><span style="color:#bf616a;">key</span><span>, </span><span style="color:#bf616a;">val </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">s </span><span>:= </span><span style="color:#bf616a;">getShard</span><span>(</span><span style="color:#bf616a;">key</span><span>)
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan bool</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">writes </span><span>&lt;- </span><span style="color:#bf616a;">writeOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">key</span><span>, </span><span style="color:#bf616a;">val</span><span>: </span><span style="color:#bf616a;">val</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}
+</span><span>    &lt;-</span><span style="color:#bf616a;">resp
+</span><span>}
+</span></code></pre>
+<p>The caller doesn't know about sharding. The API is unchanged.</p>
+<h2 id="why-this-scales-linearly">Why This Scales Linearly</h2>
+<p>With <code>N</code> shards:</p>
+<ul>
+<li>~<code>N</code>× throughput (until CPU/IO saturation)</li>
+<li>State access is still serialized <strong>per key</strong></li>
+<li>Different keys run in <strong>parallel</strong></li>
+</ul>
+<h3 id="per-key-linearizability">Per-Key Linearizability</h3>
+<p>Critical property: operations for the <strong>same key</strong>:</p>
+<ul>
+<li>Always go to the same owner</li>
+<li>Remain strictly ordered</li>
+<li>See consistent state</li>
+</ul>
+<p>You get parallelism <strong>across keys</strong> while maintaining correctness <strong>per key</strong>.</p>
+<h2 id="comparison-with-mutex-sharding">Comparison with Mutex Sharding</h2>
+<p>You could also shard with mutexes:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">locks </span><span>[</span><span style="color:#bf616a;">numShards</span><span>]</span><span style="color:#bf616a;">sync</span><span>.</span><span style="color:#b48ead;">Mutex
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">states </span><span>[</span><span style="color:#bf616a;">numShards</span><span>]</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">int</span><span>]</span><span style="color:#b48ead;">int
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">read</span><span>(</span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">int</span><span>) </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#bf616a;">key </span><span>% </span><span style="color:#bf616a;">numShards
+</span><span>    </span><span style="color:#bf616a;">locks</span><span>[</span><span style="color:#bf616a;">i</span><span>].</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">locks</span><span>[</span><span style="color:#bf616a;">i</span><span>].</span><span style="color:#bf616a;">Unlock</span><span>()
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">states</span><span>[</span><span style="color:#bf616a;">i</span><span>][</span><span style="color:#bf616a;">key</span><span>]
+</span><span>}
+</span></code></pre>
+<h3 id="trade-offs">Trade-offs</h3>
+<table><thead><tr><th>Aspect</th><th>Channel Sharding</th><th>Mutex Sharding</th></tr></thead><tbody>
+<tr><td>Memory model</td><td>Message passing</td><td>Shared memory</td></tr>
+<tr><td>Ownership</td><td>Enforced by design</td><td>Enforced by discipline</td></tr>
+<tr><td>Invariants</td><td>Localized in owner</td><td>Spread across code</td></tr>
+<tr><td>Error modes</td><td>Blocked channel</td><td>Forgotten lock</td></tr>
+<tr><td>Debugging</td><td>Easier (single owner)</td><td>Harder (any caller)</td></tr>
+</tbody></table>
+<p>Channel sharding is safer. Mutex sharding is faster (no channel overhead).</p>
+<p>Choose based on:</p>
+<ul>
+<li>Complexity of invariants</li>
+<li>Team discipline</li>
+<li>Performance requirements</li>
+</ul>
+<h2 id="when-to-shard">When to Shard</h2>
+<h3 id="symptoms-you-need-sharding">Symptoms You Need Sharding</h3>
+<ul>
+<li>Single owner at 100% CPU</li>
+<li>Request latency grows under load</li>
+<li>Profiler shows time in channel recv</li>
+<li>Throughput plateaus despite available cores</li>
+</ul>
+<h3 id="how-many-shards">How Many Shards?</h3>
+<p>Rules of thumb:</p>
+<ul>
+<li>Start with <code>runtime.GOMAXPROCS(0)</code> (number of cores)</li>
+<li>Powers of 2 are common (16, 32, 64)</li>
+<li>More shards = more parallelism, but more channels</li>
+<li>Profile to find the right number</li>
+</ul>
+<h3 id="hash-function">Hash Function</h3>
+<p>Simple modulo works for integers:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">shard </span><span>:= </span><span style="color:#bf616a;">key </span><span>% </span><span style="color:#bf616a;">numShards
+</span></code></pre>
+<p>For strings, use a real hash:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">hash/fnv</span><span>&quot;
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">hash</span><span>(</span><span style="color:#bf616a;">s </span><span style="color:#b48ead;">string</span><span>) </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#bf616a;">h </span><span>:= </span><span style="color:#bf616a;">fnv</span><span>.</span><span style="color:#bf616a;">New32a</span><span>()
+</span><span>    </span><span style="color:#bf616a;">h</span><span>.</span><span style="color:#bf616a;">Write</span><span>([]</span><span style="color:#b48ead;">byte</span><span>(</span><span style="color:#bf616a;">s</span><span>))
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">int</span><span>(</span><span style="color:#bf616a;">h</span><span>.</span><span style="color:#bf616a;">Sum32</span><span>())
+</span><span>}
+</span><span>
+</span><span style="color:#bf616a;">shard </span><span>:= </span><span style="color:#bf616a;">hash</span><span>(</span><span style="color:#bf616a;">key</span><span>) % </span><span style="color:#bf616a;">numShards
+</span></code></pre>
+<h2 id="real-world-examples">Real-World Examples</h2>
+<p>This exact pattern appears in:</p>
+<table><thead><tr><th>System</th><th>Sharding Unit</th></tr></thead><tbody>
+<tr><td>Redis Cluster</td><td>Hash slots (16384)</td></tr>
+<tr><td>Kafka</td><td>Partitions per topic</td></tr>
+<tr><td>Cassandra</td><td>Token ranges</td></tr>
+<tr><td>Akka</td><td>Router + Actors</td></tr>
+<tr><td>Erlang</td><td>Process groups</td></tr>
+<tr><td>Go maps</td><td>Internal bucket shards</td></tr>
+</tbody></table>
+<p>You're learning distributed systems primitives, not just Go.</p>
+<h2 id="adding-context-to-shards">Adding Context to Shards</h2>
+<p>Production code needs shutdown:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">shard</span><span>) </span><span style="color:#8fa1b3;">run</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">state </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">int</span><span>]</span><span style="color:#b48ead;">int</span><span>)
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r </span><span>:= &lt;-</span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">reads</span><span>:
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">key</span><span>]:
+</span><span>            </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            }
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w </span><span>:= &lt;-</span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">writes</span><span>:
+</span><span>            </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">val
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#d08770;">true</span><span>:
+</span><span>            </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            }
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Now each shard:</p>
+<ul>
+<li>Respects global shutdown</li>
+<li>Handles abandoned requests</li>
+<li>Won't block forever</li>
+</ul>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Single owner is correct but limited</strong> — throughput caps at one core</li>
+<li><strong>Shard by key to scale</strong> — each shard is an independent actor</li>
+<li><strong>Same key → same shard</strong> — preserves per-key linearizability</li>
+<li><strong>Routing is transparent</strong> — callers don't know about shards</li>
+<li><strong>This is how production systems work</strong> — Redis, Kafka, Cassandra all do this</li>
+</ol>
+<p>The insight: you don't abandon the actor model to scale—you multiply it.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-channels-request-response/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Channels: The Request-Response Pattern Demystified</span>
+                            </a>
+                        </span>
+                    
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
