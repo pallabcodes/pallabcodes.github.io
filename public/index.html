@@ -110,6 +110,42 @@
             
                 <div class="post on-list">
                     
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-scheduler-part-2/">The Go Scheduler Part 2: Leaks, Supervision &amp; Backpressure</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/scheduler/">#scheduler</a></span>
+    
+
+
+                    
+        <div class="post-content">
+            <p>Part 1 explained the G-P-M model. This part covers what happens when things go wrong: real leak postmortems, proper supervision, backpressure design, and how Go compares to Rust's async model.</p>
+        </div>
+        <div>
+            <!-- &#xFE0E; -- force text style - some devices render this as emoji -->
+            <a class="read-more button" href="https://pallabcodes.github.io/go-scheduler-part-2/">
+                <span class="button__text">Read more</span>&nbsp;
+                <span class="button__icon">&#8617;&#xFE0E;</span>
+            </a>
+        </div>
+    
+
+                </div>
+            
+                <div class="post on-list">
+                    
     <h1 class="post-title"><a href="https://pallabcodes.github.io/go-templates-part-1/">Go Templates Part 1: The Mental Model</a></h1>
     <div class="post-meta-inline">
         
@@ -384,42 +420,6 @@
         <div>
             <!-- &#xFE0E; -- force text style - some devices render this as emoji -->
             <a class="read-more button" href="https://pallabcodes.github.io/share-memory-communicating-part-4/">
-                <span class="button__text">Read more</span>&nbsp;
-                <span class="button__icon">&#8617;&#xFE0E;</span>
-            </a>
-        </div>
-    
-
-                </div>
-            
-                <div class="post on-list">
-                    
-    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-signals/">Handling OS Signals in Go</a></h1>
-    <div class="post-meta-inline">
-        
-    <span class="post-date">
-            2025-12-18
-        </span>
-
-    </div>
-
-    
-        <span class="post-tags-inline">
-                :: tags:&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
-                <a class="post-tag" href="https://pallabcodes.github.io/tags/systems/">#systems</a></span>
-    
-
-
-                    
-        <div class="post-content">
-            <p>Every long-running Go program—whether it's an HTTP server, a worker process, or a CLI tool—needs to handle shutdown gracefully. You don't want your database connections left hanging or your in-flight requests aborted mid-write when someone hits Ctrl+C.</p>
-<p>Go makes this surprisingly elegant by treating OS signals as just another event source you can receive on a channel. Let's dig into how it actually works.</p>
-        </div>
-        <div>
-            <!-- &#xFE0E; -- force text style - some devices render this as emoji -->
-            <a class="read-more button" href="https://pallabcodes.github.io/go-signals/">
                 <span class="button__text">Read more</span>&nbsp;
                 <span class="button__icon">&#8617;&#xFE0E;</span>
             </a>

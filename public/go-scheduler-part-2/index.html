@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>The Go Scheduler Part 2: Leaks, Supervision &amp; Backpressure | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Real goroutine leak postmortems, supervision trees, backpressure design, and Go vs Rust async comparison">
+
+    <meta property="og:description" content="Real goroutine leak postmortems, supervision trees, backpressure design, and Go vs Rust async comparison">
+    <meta property="og:title" content="The Go Scheduler Part 2: Leaks, Supervision & Backpressure | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-scheduler-part-2/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Real goroutine leak postmortems, supervision trees, backpressure design, and Go vs Rust async comparison">
+    <meta name="twitter:title" content="The Go Scheduler Part 2: Leaks, Supervision & Backpressure | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-scheduler-part-2/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-scheduler-part-2/">The Go Scheduler Part 2: Leaks, Supervision &amp; Backpressure</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/scheduler/">#scheduler</a></span>
+    
+
+        <div class="post-content">
+            <p>Part 1 explained the G-P-M model. This part covers what happens when things go wrong: real leak postmortems, proper supervision, backpressure design, and how Go compares to Rust's async model.</p>
+<span id="continue-reading"></span><h2 id="a-real-goroutine-leak-postmortem">A Real Goroutine Leak Postmortem</h2>
+<p>This is a common incident pattern. I've seen variations of this at multiple companies.</p>
+<h3 id="the-symptoms">The Symptoms</h3>
+<ul>
+<li>p99 latency slowly increases</li>
+<li>Memory usage climbs</li>
+<li>No crashes</li>
+<li>CPU looks normal</li>
+<li>Restarts "fix" it temporarily</li>
+</ul>
+<h3 id="the-code-that-shipped">The Code That Shipped</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Result</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">result </span><span>:= </span><span style="color:#bf616a;">callBackend</span><span>()  </span><span style="color:#65737e;">// slow, sometimes hangs
+</span><span>        </span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">result
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">res </span><span>:= &lt;-</span><span style="color:#bf616a;">resp</span><span>:
+</span><span>        </span><span style="color:#bf616a;">writeResponse</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">res</span><span>)
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">After</span><span>(</span><span style="color:#d08770;">100 </span><span>* </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>):
+</span><span>        </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Error</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">timeout</span><span>&quot;, </span><span style="color:#d08770;">504</span><span>)
+</span><span>        </span><span style="color:#b48ead;">return
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="why-it-looked-correct">Why It Looked Correct</h3>
+<ul>
+<li>Timeout exists ✅</li>
+<li>Buffered channel avoids blocking ✅</li>
+<li>No mutexes ✅</li>
+<li>No obvious deadlock ✅</li>
+</ul>
+<p>This passed code review. This shipped to production.</p>
+<h3 id="what-actually-happened">What Actually Happened</h3>
+<ol>
+<li>Client disconnects early</li>
+<li><code>handler</code> returns</li>
+<li><code>resp</code> channel is <strong>never read again</strong></li>
+<li>Backend goroutine eventually finishes</li>
+<li>Backend goroutine executes <code>resp &lt;- result</code></li>
+<li><strong>Blocks forever</strong></li>
+</ol>
+<p>Wait—buffer size is 1, shouldn't it succeed?</p>
+<p>Sometimes. But if:</p>
+<ul>
+<li>Backend returns twice (retry logic)</li>
+<li>Value already sent</li>
+<li>Reconnection logic fires</li>
+</ul>
+<p>The second send blocks forever.</p>
+<p>At 5k RPS, thousands of goroutines leak per minute. Memory climbs. Latency degrades. No crash, no alert.</p>
+<h3 id="why-the-runtime-didn-t-help">Why the Runtime Didn't Help</h3>
+<p>The Go runtime only panics when <strong>all</strong> goroutines are blocked. One blocked goroutine among thousands? Runtime doesn't care.</p>
+<h3 id="the-fix">The Fix</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithTimeout</span><span>(</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Context</span><span>(), </span><span style="color:#d08770;">100</span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>)
+</span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>
+</span><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">res </span><span>:= &lt;-</span><span style="color:#bf616a;">resp</span><span>:
+</span><span>    </span><span style="color:#bf616a;">writeResponse</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">res</span><span>)
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>    </span><span style="color:#b48ead;">return
+</span><span>}
+</span></code></pre>
+<p>And inside the backend goroutine:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">result</span><span>:
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>    </span><span style="color:#b48ead;">return
+</span><span>}
+</span></code></pre>
+<p><strong>One missing <code>select</code> caused a production incident.</strong></p>
+<h3 id="the-lesson">The Lesson</h3>
+<blockquote>
+<p><strong>Buffered channels hide leaks. Context exposes them.</strong></p>
+</blockquote>
+<h2 id="supervision-trees-in-go">Supervision Trees in Go</h2>
+<p>Go doesn't have Erlang-style supervisors. You must build them.</p>
+<h3 id="what-supervision-means-in-go">What Supervision Means in Go</h3>
+<p>A supervision tree is a hierarchy where parents:</p>
+<ul>
+<li>Start children</li>
+<li>Cancel children</li>
+<li>Wait for children</li>
+<li>Optionally restart children</li>
+</ul>
+<h3 id="production-structure">Production Structure</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>main
+</span><span> └── root supervisor
+</span><span>      ├── http server
+</span><span>      │    └── request handlers (errgroup)
+</span><span>      ├── background worker supervisor
+</span><span>      │    ├── worker A (restartable)
+</span><span>      │    └── worker B (restartable)
+</span><span>      └── state owner
+</span></code></pre>
+<h3 id="root-supervisor-pattern">Root Supervisor Pattern</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">NotifyContext</span><span>(
+</span><span>        </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(),
+</span><span>        </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>,
+</span><span>        </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Interrupt</span><span>,
+</span><span>    )
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">wg sync</span><span>.</span><span style="color:#b48ead;">WaitGroup
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start function for supervised goroutines
+</span><span>    </span><span style="color:#bf616a;">start </span><span>:= </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">fn </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>)) {
+</span><span>        </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>        </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>            </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>            </span><span style="color:#bf616a;">fn</span><span>(</span><span style="color:#bf616a;">ctx</span><span>)
+</span><span>        }()
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start your services
+</span><span>    </span><span style="color:#bf616a;">start</span><span>(</span><span style="color:#bf616a;">runHTTPServer</span><span>)
+</span><span>    </span><span style="color:#bf616a;">start</span><span>(</span><span style="color:#bf616a;">runWorkerPool</span><span>)
+</span><span>    </span><span style="color:#bf616a;">start</span><span>(</span><span style="color:#bf616a;">runStateOwner</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Wait for shutdown signal
+</span><span>    &lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Wait for all children to exit
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span><span>}
+</span></code></pre>
+<h3 id="why-this-matters">Why This Matters</h3>
+<ul>
+<li>No orphan goroutines</li>
+<li>Deterministic shutdown</li>
+<li>No leaks survive SIGTERM</li>
+<li>Kubernetes-friendly</li>
+</ul>
+<h2 id="backpressure-the-missing-design-element">Backpressure: The Missing Design Element</h2>
+<p>Every production system must answer:</p>
+<blockquote>
+<p><strong>What happens if input arrives faster than output?</strong></p>
+</blockquote>
+<h3 id="without-backpressure">Without Backpressure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">job </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">jobs </span><span>{
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">process</span><span>(</span><span style="color:#bf616a;">job</span><span>)  </span><span style="color:#65737e;">// Infinite concurrency
+</span><span>}
+</span></code></pre>
+<p>This spawns unbounded goroutines. Memory explodes under load.</p>
+<h3 id="with-explicit-backpressure">With Explicit Backpressure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">sem </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan struct</span><span>{}, </span><span style="color:#d08770;">32</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">job </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">jobs </span><span>{
+</span><span>    </span><span style="color:#bf616a;">sem </span><span>&lt;- </span><span style="color:#b48ead;">struct</span><span>{}{}  </span><span style="color:#65737e;">// Blocks when 32 active
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>(</span><span style="color:#bf616a;">job </span><span style="color:#b48ead;">Job</span><span>) {
+</span><span>        </span><span style="color:#b48ead;">defer func</span><span>() { &lt;-</span><span style="color:#bf616a;">sem </span><span>}()
+</span><span>        </span><span style="color:#bf616a;">process</span><span>(</span><span style="color:#bf616a;">job</span><span>)
+</span><span>    }(</span><span style="color:#bf616a;">job</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Now:</p>
+<ul>
+<li>Max 32 concurrent workers</li>
+<li>Senders block when full</li>
+<li>Pressure propagates upstream</li>
+<li>System stabilizes</li>
+</ul>
+<h3 id="channel-owned-state-with-backpressure">Channel-Owned State with Backpressure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">reads </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan readOp</span><span>, </span><span style="color:#d08770;">100</span><span>)  </span><span style="color:#65737e;">// Bounded
+</span></code></pre>
+<p>When the buffer fills:</p>
+<ul>
+<li>Senders block</li>
+<li>Pressure propagates</li>
+<li>System finds equilibrium</li>
+</ul>
+<h3 id="the-rule">The Rule</h3>
+<blockquote>
+<p><strong>Every unbounded queue eventually becomes a memory leak.</strong></p>
+</blockquote>
+<p>Buffers must be:</p>
+<ul>
+<li>Sized intentionally</li>
+<li>Justified with math</li>
+<li>Monitored in production</li>
+</ul>
+<h2 id="go-vs-rust-async-real-differences">Go vs Rust Async: Real Differences</h2>
+<p>This isn't about performance—it's about semantics.</p>
+<h3 id="go-cancellation">Go Cancellation</h3>
+<ul>
+<li>Explicit</li>
+<li>Opt-in</li>
+<li>Cooperative</li>
+<li>Goroutine continues unless it checks context</li>
+</ul>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>    </span><span style="color:#b48ead;">return
+</span><span>}
+</span></code></pre>
+<p><strong>Implication</strong>: You must <em>prove</em> cancellation paths exist.</p>
+<h3 id="rust-async-cancellation-tokio">Rust Async Cancellation (Tokio)</h3>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>tokio::select! {
+</span><span>    _ = </span><span style="color:#96b5b4;">work</span><span>() =&gt; {}
+</span><span>    _ = cancel_token.</span><span style="color:#96b5b4;">cancelled</span><span>() =&gt; {}
+</span><span>}
+</span></code></pre>
+<p>Key difference: When a future is dropped, <strong>it is cancelled</strong>. Cancellation is structural. Compiler-enforced lifetimes prevent leaks at compile time.</p>
+<h3 id="comparison">Comparison</h3>
+<table><thead><tr><th>Aspect</th><th>Go</th><th>Rust</th></tr></thead><tbody>
+<tr><td>Cancellation</td><td>Manual</td><td>Structural</td></tr>
+<tr><td>Safety</td><td>Runtime</td><td>Compile-time</td></tr>
+<tr><td>Ergonomics</td><td>Simple</td><td>Verbose</td></tr>
+<tr><td>Footguns</td><td>Many</td><td>Fewer</td></tr>
+<tr><td>Control</td><td>High</td><td>High</td></tr>
+</tbody></table>
+<h3 id="the-critical-insight">The Critical Insight</h3>
+<blockquote>
+<p><strong>Go favors explicit ownership.</strong>
+<strong>Rust favors implicit correctness.</strong></p>
+</blockquote>
+<p>That's why Go needs <strong>discipline</strong>, not magic.</p>
+<h2 id="designing-real-systems">Designing Real Systems</h2>
+<p>Everything we've covered comes together when you build:</p>
+<h3 id="a-supervised-job-processing-system">A Supervised Job Processing System</h3>
+<p>Components:</p>
+<ol>
+<li><strong>Root supervisor</strong> — SIGTERM handling, graceful shutdown</li>
+<li><strong>Job queue</strong> — Bounded channels, backpressure</li>
+<li><strong>State owner</strong> — Channel-owned state pattern</li>
+<li><strong>Worker pool</strong> — Restartable workers with context</li>
+<li><strong>HTTP API</strong> — Request-scoped goroutines</li>
+<li><strong>Metrics</strong> — Goroutine count, queue depth</li>
+</ol>
+<p>This exercises:</p>
+<ul>
+<li>Supervision patterns</li>
+<li>Real failure modes</li>
+<li>Shutdown semantics</li>
+<li>Backpressure decisions</li>
+</ul>
+<p>This is exactly the kind of system senior Go engineers build.</p>
+<h2 id="final-synthesis">Final Synthesis</h2>
+<blockquote>
+<p><strong>Go concurrency is not about goroutines and channels—it is about controlling lifetimes, ownership, and pressure under failure.</strong></p>
+</blockquote>
+<p>The scheduler handles the mechanics. You handle the architecture.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Leaks happen silently</strong>—the runtime won't save you</li>
+<li><strong>Supervision is manual</strong>—build start/stop/wait patterns</li>
+<li><strong>Backpressure is required</strong>—unbounded queues are memory leaks</li>
+<li><strong>Context is your friend</strong>—every blocking op needs an escape</li>
+<li><strong>Go vs Rust</strong>—explicitness vs implicit correctness</li>
+</ol>
+<p>The G-P-M model is elegant. Your job is to not break its guarantees.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-templates-part-1/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Templates Part 1: The Mental Model</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-scheduler-explained/">
+                                <span class="button__text">The Go Scheduler: G-P-M Model Explained</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

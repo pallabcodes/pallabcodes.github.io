@@ -17,6 +17,14 @@
           <description xml:base="https://pallabcodes.github.io/go-scheduler-explained/">&lt;p&gt;Go runs many goroutines on few OS threads. Understanding how is the difference between hoping your concurrent code works and &lt;em&gt;knowing&lt;&#x2F;em&gt; it works.&lt;&#x2F;p&gt;</description>
       </item>
       <item>
+          <title>The Go Scheduler Part 2: Leaks, Supervision &amp; Backpressure</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-scheduler-part-2/</link>
+          <guid>https://pallabcodes.github.io/go-scheduler-part-2/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-scheduler-part-2/">&lt;p&gt;Part 1 explained the G-P-M model. This part covers what happens when things go wrong: real leak postmortems, proper supervision, backpressure design, and how Go compares to Rust&#x27;s async model.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>Go Templates Part 1: The Mental Model</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>
