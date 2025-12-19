@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Templates Part 1: The Mental Model | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Understanding Go's template system from first principles - the dot, parsing, and execution model">
+
+    <meta property="og:description" content="Understanding Go's template system from first principles - the dot, parsing, and execution model">
+    <meta property="og:title" content="Go Templates Part 1: The Mental Model | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-templates-part-1/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Understanding Go's template system from first principles - the dot, parsing, and execution model">
+    <meta name="twitter:title" content="Go Templates Part 1: The Mental Model | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-templates-part-1/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-templates-part-1/">Go Templates Part 1: The Mental Model</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/fundamentals/">#fundamentals</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/templates/">#templates</a></span>
+    
+
+        <div class="post-content">
+            <p>Go's <code>text/template</code> package looks simple until you actually use it. Then you hit the dot, get confused by context, and wonder why your template panics on nil. This post builds the mental model you need.</p>
+<span id="continue-reading"></span><h2 id="the-core-abstraction">The Core Abstraction</h2>
+<p>A Go template is a <strong>compiled text structure</strong> that you execute with data. Two distinct phases:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Phase 1: Parse (compile)
+</span><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">t</span><span>&quot;).</span><span style="color:#bf616a;">Parse</span><span>(&quot;</span><span style="color:#a3be8c;">Hello </span><span>{{</span><span style="color:#bf616a;">.</span><span>}}&quot;))
+</span><span>
+</span><span style="color:#65737e;">// Phase 2: Execute (render)
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Stdout</span><span>, &quot;</span><span style="color:#a3be8c;">World</span><span>&quot;)
+</span><span style="color:#65737e;">// Output: Hello World
+</span></code></pre>
+<p><code>Parse</code> happens once. <code>Execute</code> happens many times. If you're parsing templates per request, you're doing it wrong.</p>
+<h2 id="the-dot-current-context">The Dot: Current Context</h2>
+<p>The single most important concept in Go templates is <code>.</code> (dot). It represents <strong>whatever data is currently in scope</strong>.</p>
+<p>At the start of execution, <code>.</code> equals whatever you passed to <code>Execute</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">Alice</span><span>&quot;)  </span><span style="color:#65737e;">// . == &quot;Alice&quot;
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#d08770;">42</span><span>)       </span><span style="color:#65737e;">// . == 42
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">user</span><span>)     </span><span style="color:#65737e;">// . == user struct
+</span></code></pre>
+<h3 id="accessing-fields">Accessing Fields</h3>
+<p>When <code>.</code> is a struct or map, you access fields with <code>.FieldName</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">t</span><span>&quot;).</span><span style="color:#bf616a;">Parse</span><span>(`
+</span><span style="color:#a3be8c;">Name: </span><span>{{.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span style="color:#a3be8c;">Age: </span><span>{{.</span><span style="color:#bf616a;">Age</span><span>}}
+</span><span>`))
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Stdout</span><span>, </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">Name </span><span style="color:#b48ead;">string
+</span><span>    </span><span style="color:#bf616a;">Age  </span><span style="color:#b48ead;">int
+</span><span>}{&quot;</span><span style="color:#a3be8c;">Alice</span><span>&quot;, </span><span style="color:#d08770;">30</span><span>})
+</span></code></pre>
+<p>This works identically for structs and maps:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Both work with .Name
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#b48ead;">struct</span><span>{ </span><span style="color:#bf616a;">Name </span><span style="color:#b48ead;">string </span><span>}{&quot;</span><span style="color:#a3be8c;">Alice</span><span>&quot;})
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">Name</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">Alice</span><span>&quot;})
+</span></code></pre>
+<h3 id="context-changes-inside-range">Context Changes Inside <code>range</code></h3>
+<p>Here's where people get confused. Inside <code>range</code>, the dot <strong>becomes each element</strong>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">t</span><span>&quot;).</span><span style="color:#bf616a;">Parse</span><span>(`
+</span><span>{{</span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">.</span><span>}}
+</span><span style="color:#a3be8c;">  - </span><span>{{</span><span style="color:#bf616a;">.</span><span>}}
+</span><span>{{</span><span style="color:#b48ead;">end</span><span>}}
+</span><span>`))
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Stdout</span><span>, []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">Go</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">Rust</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">Zig</span><span>&quot;})
+</span></code></pre>
+<p>Before <code>range</code>: <code>. == []string{"Go", "Rust", "Zig"}</code>
+Inside <code>range</code>: <code>. == "Go"</code>, then <code>. == "Rust"</code>, then <code>. == "Zig"</code></p>
+<p>If you need the original context inside a range:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{$</span><span style="color:#bf616a;">root </span><span>:= .}}
+</span><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items</span><span>}}
+</span><span>  {{.</span><span style="color:#bf616a;">Name</span><span>}} </span><span style="color:#bf616a;">belongs to </span><span>{{$</span><span style="color:#bf616a;">root</span><span>.</span><span style="color:#bf616a;">Owner</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<h2 id="truthiness-rules">Truthiness Rules</h2>
+<p><code>if</code> checks whether a value is "truthy":</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">if </span><span>.}}</span><span style="color:#bf616a;">yes</span><span>{{</span><span style="color:#b48ead;">else</span><span>}}</span><span style="color:#bf616a;">no</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>Go templates consider these <strong>falsy</strong>:</p>
+<ul>
+<li><code>false</code></li>
+<li><code>0</code></li>
+<li><code>nil</code></li>
+<li>Empty string <code>""</code></li>
+<li>Empty slice/map/channel</li>
+</ul>
+<p>Everything else is truthy.</p>
+<h2 id="why-templates-are-logic-light">Why Templates Are Logic-Light</h2>
+<p>Go templates deliberately limit what you can do:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ✅ Allowed
+</span><span>{{</span><span style="color:#b48ead;">if </span><span>.</span><span style="color:#bf616a;">IsAdmin</span><span>}}...{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items</span><span>}}...{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>{{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span>
+</span><span style="color:#65737e;">// ❌ Not allowed
+</span><span>{{</span><span style="color:#b48ead;">if </span><span>.</span><span style="color:#bf616a;">Count </span><span>&gt; </span><span style="color:#d08770;">10</span><span>}}...{{</span><span style="color:#bf616a;">end</span><span>}}     </span><span style="color:#65737e;">// No operators
+</span><span>{{.</span><span style="color:#bf616a;">Count </span><span>+ </span><span style="color:#d08770;">1</span><span>}}                    </span><span style="color:#65737e;">// No arithmetic
+</span><span>{{$</span><span style="color:#bf616a;">x </span><span>:= </span><span style="color:#bf616a;">computeValue </span><span>.}}          </span><span style="color:#65737e;">// No arbitrary function calls
+</span></code></pre>
+<p>This isn't a limitation—it's the point. Templates render data; they don't compute it. All logic belongs in Go code.</p>
+<p>The philosophy: if you need to transform data, do it before calling <code>Execute</code>. Your templates stay readable, testable, and secure.</p>
+<h2 id="text-template-vs-html-template">text/template vs html/template</h2>
+<p>These are <strong>almost identical APIs</strong> with one critical difference:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">text/template</span><span>&quot;  </span><span style="color:#65737e;">// No escaping
+</span><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">html/template</span><span>&quot;  </span><span style="color:#65737e;">// Auto-escapes for HTML
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">&lt;script&gt;alert(1)&lt;/script&gt;</span><span>&quot;)
+</span><span style="color:#65737e;">// text/template: &lt;script&gt;alert(1)&lt;/script&gt;
+</span><span style="color:#65737e;">// html/template: &amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;
+</span></code></pre>
+<p><strong>Rule</strong>: HTML output → <code>html/template</code>. Everything else → <code>text/template</code>.</p>
+<p>Using <code>text/template</code> for HTML is an XSS vulnerability. Don't do it.</p>
+<h2 id="parse-once-execute-many">Parse Once, Execute Many</h2>
+<p>This pattern matters for performance and safety:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ❌ Bad: parsing per request
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">page.html</span><span>&quot;))
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;">// ✅ Good: parse at startup
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">tmpl </span><span>= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">page.html</span><span>&quot;))
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Why this matters:</p>
+<ul>
+<li>Parsing is expensive (string processing, memory allocation)</li>
+<li>Parse errors should crash at startup, not at request time</li>
+<li>Templates are goroutine-safe for execution</li>
+</ul>
+<h2 id="practical-debugging">Practical Debugging</h2>
+<p>When a template doesn't render what you expect, dump the context:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">printf </span><span>&quot;</span><span style="color:#d08770;">%#v</span><span>&quot; .}}
+</span></code></pre>
+<p>This prints the full Go representation of whatever <code>.</code> currently is. Remove it before shipping.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong><code>.</code> = current context</strong>, not "the data you passed in"</li>
+<li><strong>Parse once</strong> at startup, execute many times</li>
+<li><strong>Templates render, they don't compute</strong>—logic goes in Go</li>
+<li><strong><code>html/template</code> for HTML</strong>, always</li>
+</ol>
+<p>Next up: <a href="/go-templates-part-2">Part 2</a> covers <code>with</code>, <code>range</code> patterns, custom functions, and template composition.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-templates-part-2/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Templates Part 2: Patterns That Scale</span>
+                            </a>
+                        </span>
+                    
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

@@ -43,6 +43,22 @@
         <lastmod>2025-12-18</lastmod>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/go-templates-part-1/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-templates-part-2/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-templates-part-3/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/go-templates-part-4/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/page/1/</loc>
     </url>
     <url>
@@ -81,6 +97,9 @@
         <loc>https://pallabcodes.github.io/tags/distributed-systems/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/tags/fundamentals/</loc>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/tags/git/</loc>
     </url>
     <url>
@@ -91,6 +110,9 @@
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/grpc/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/infrastructure/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/internals/</loc>
@@ -106,6 +128,9 @@
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/observability/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/patterns/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/performance/</loc>
@@ -132,6 +157,9 @@
         <loc>https://pallabcodes.github.io/tags/rust/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/tags/security/</loc>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/tags/software-design/</loc>
     </url>
     <url>
@@ -139,6 +167,9 @@
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/systems/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/templates/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/testing/</loc>

@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Templates Part 4: Operating Templates at Scale | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Template services, versioning, observability, code generation, and incident response for production systems">
+
+    <meta property="og:description" content="Template services, versioning, observability, code generation, and incident response for production systems">
+    <meta property="og:title" content="Go Templates Part 4: Operating Templates at Scale | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-templates-part-4/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Template services, versioning, observability, code generation, and incident response for production systems">
+    <meta name="twitter:title" content="Go Templates Part 4: Operating Templates at Scale | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-templates-part-4/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-templates-part-4/">Go Templates Part 4: Operating Templates at Scale</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/infrastructure/">#infrastructure</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/observability/">#observability</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/templates/">#templates</a></span>
+    
+
+        <div class="post-content">
+            <p>At a certain scale, templates become infrastructure. They need versioning, observability, rollback, and operational runbooks. This post covers how to treat templates as first-class production assets.</p>
+<span id="continue-reading"></span><h2 id="when-templates-become-infrastructure">When Templates Become Infrastructure</h2>
+<p>Templates become infrastructure when:</p>
+<ul>
+<li>Multiple services render the same templates</li>
+<li>Template bugs cause user-facing incidents</li>
+<li>Changes need review and rollback capability</li>
+<li>Rendering latency appears in your P95</li>
+</ul>
+<p>At that point, you're not "using templates"—you're operating them.</p>
+<h2 id="building-a-template-service">Building a Template Service</h2>
+<h3 id="why-centralize">Why Centralize?</h3>
+<p>Instead of each service parsing its own templates:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Every service does this
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">tmpl </span><span>= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">email.html</span><span>&quot;))
+</span></code></pre>
+<p>Build a central render service:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">POST </span><span>/</span><span style="color:#bf616a;">render
+</span><span>{
+</span><span>  &quot;</span><span style="color:#a3be8c;">template</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">invoice_v2</span><span>&quot;,
+</span><span>  &quot;</span><span style="color:#a3be8c;">data</span><span>&quot;: { &quot;</span><span style="color:#a3be8c;">customer</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">Alice</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">total</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">100.00</span><span>&quot; }
+</span><span>}
+</span></code></pre>
+<p>Benefits:</p>
+<ul>
+<li>Single source of truth</li>
+<li>Centralized security</li>
+<li>Unified observability</li>
+<li>Easy rollback</li>
+</ul>
+<h3 id="minimal-implementation">Minimal Implementation</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>RenderService </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">templates </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]*</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#b48ead;">Template
+</span><span>    </span><span style="color:#bf616a;">maxOutput </span><span style="color:#b48ead;">int
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">RenderService</span><span>) </span><span style="color:#8fa1b3;">Render</span><span>(</span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">any</span><span>) ([]</span><span style="color:#b48ead;">byte</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>, </span><span style="color:#bf616a;">ok </span><span>:= </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">templates</span><span>[</span><span style="color:#bf616a;">name</span><span>]
+</span><span>    </span><span style="color:#b48ead;">if </span><span>!</span><span style="color:#bf616a;">ok </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Errorf</span><span>(&quot;</span><span style="color:#a3be8c;">template </span><span style="color:#d08770;">%q</span><span style="color:#a3be8c;"> not found</span><span>&quot;, </span><span style="color:#bf616a;">name</span><span>)
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">buf bytes</span><span>.</span><span style="color:#b48ead;">Buffer
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(&amp;</span><span style="color:#bf616a;">buf</span><span>, </span><span style="color:#bf616a;">data</span><span>); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Errorf</span><span>(&quot;</span><span style="color:#a3be8c;">execute: </span><span style="color:#d08770;">%w</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Len</span><span>() &gt; </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">maxOutput </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">errors</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">output exceeds size limit</span><span>&quot;)
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Bytes</span><span>(), </span><span style="color:#d08770;">nil
+</span><span>}
+</span></code></pre>
+<p>Clients send data, service returns rendered output. Templates never leave the service.</p>
+<h2 id="template-versioning">Template Versioning</h2>
+<h3 id="immutable-versions">Immutable Versions</h3>
+<p>Never mutate a template in place. Version it:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>invoice_v1.html
+</span><span>invoice_v2.html
+</span><span>invoice_v3.html
+</span></code></pre>
+<p>This gives you:</p>
+<ul>
+<li>Rollback capability</li>
+<li>A/B testing</li>
+<li>Gradual migration</li>
+<li>Audit trail</li>
+</ul>
+<h3 id="configuration-driven-selection">Configuration-Driven Selection</h3>
+<pre data-lang="json" style="background-color:#2b303b;color:#c0c5ce;" class="language-json "><code class="language-json" data-lang="json"><span>{
+</span><span>  &quot;</span><span style="color:#a3be8c;">invoice</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">invoice_v2</span><span>&quot;,
+</span><span>  &quot;</span><span style="color:#a3be8c;">receipt</span><span>&quot;: &quot;</span><span style="color:#a3be8c;">receipt_v3</span><span>&quot;
+</span><span>}
+</span></code></pre>
+<p>Rollback = config change, not deployment.</p>
+<h3 id="registry-pattern">Registry Pattern</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>VersionedTemplates </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">versions </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]*</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#b48ead;">Template
+</span><span>    </span><span style="color:#bf616a;">current  </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">string  </span><span style="color:#65737e;">// logical name → version
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">t </span><span>*</span><span style="color:#b48ead;">VersionedTemplates</span><span>) </span><span style="color:#8fa1b3;">Get</span><span>(</span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>) (*</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#b48ead;">Template</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">version </span><span>:= </span><span style="color:#bf616a;">t</span><span>.</span><span style="color:#bf616a;">current</span><span>[</span><span style="color:#bf616a;">name</span><span>]
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">version </span><span>== &quot;&quot; {
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Errorf</span><span>(&quot;</span><span style="color:#a3be8c;">no current version for </span><span style="color:#d08770;">%q</span><span>&quot;, </span><span style="color:#bf616a;">name</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">t</span><span>.</span><span style="color:#bf616a;">versions</span><span>[</span><span style="color:#bf616a;">version</span><span>], </span><span style="color:#d08770;">nil
+</span><span>}
+</span></code></pre>
+<p>Change <code>current</code> mapping to switch versions instantly.</p>
+<h2 id="observability">Observability</h2>
+<h3 id="what-to-measure">What to Measure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">RenderService</span><span>) </span><span style="color:#8fa1b3;">Render</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">any</span><span>) ([]</span><span style="color:#b48ead;">byte</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">start </span><span>:= </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Now</span><span>()
+</span><span>    </span><span style="color:#b48ead;">defer func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">renderDuration</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>).</span><span style="color:#bf616a;">Observe</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Since</span><span>(</span><span style="color:#bf616a;">start</span><span>).</span><span style="color:#bf616a;">Seconds</span><span>())
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>, </span><span style="color:#bf616a;">ok </span><span>:= </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">templates</span><span>[</span><span style="color:#bf616a;">name</span><span>]
+</span><span>    </span><span style="color:#b48ead;">if </span><span>!</span><span style="color:#bf616a;">ok </span><span>{
+</span><span>        </span><span style="color:#bf616a;">renderErrors</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>, &quot;</span><span style="color:#a3be8c;">not_found</span><span>&quot;).</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Errorf</span><span>(&quot;</span><span style="color:#a3be8c;">template </span><span style="color:#d08770;">%q</span><span style="color:#a3be8c;"> not found</span><span>&quot;, </span><span style="color:#bf616a;">name</span><span>)
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">buf bytes</span><span>.</span><span style="color:#b48ead;">Buffer
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(&amp;</span><span style="color:#bf616a;">buf</span><span>, </span><span style="color:#bf616a;">data</span><span>); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>        </span><span style="color:#bf616a;">renderErrors</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>, &quot;</span><span style="color:#a3be8c;">execute</span><span>&quot;).</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">err
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">renderOutputSize</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>).</span><span style="color:#bf616a;">Observe</span><span>(</span><span style="color:#bf616a;">float64</span><span>(</span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Len</span><span>()))
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Bytes</span><span>(), </span><span style="color:#d08770;">nil
+</span><span>}
+</span></code></pre>
+<p>Key metrics:</p>
+<ul>
+<li><strong>Latency per template</strong> (histogram)</li>
+<li><strong>Error rate per template</strong> (counter)</li>
+<li><strong>Output size</strong> (histogram—catches runaway templates)</li>
+</ul>
+<h3 id="tracing-integration">Tracing Integration</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">RenderService</span><span>) </span><span style="color:#8fa1b3;">Render</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">any</span><span>) ([]</span><span style="color:#b48ead;">byte</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">span </span><span>:= </span><span style="color:#bf616a;">tracer</span><span>.</span><span style="color:#bf616a;">Start</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, &quot;</span><span style="color:#a3be8c;">template.render</span><span>&quot;,
+</span><span>        </span><span style="color:#bf616a;">trace</span><span>.</span><span style="color:#bf616a;">WithAttributes</span><span>(</span><span style="color:#bf616a;">attribute</span><span>.</span><span style="color:#bf616a;">String</span><span>(&quot;</span><span style="color:#a3be8c;">template.name</span><span>&quot;, </span><span style="color:#bf616a;">name</span><span>)),
+</span><span>    )
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">span</span><span>.</span><span style="color:#bf616a;">End</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// ... render logic ...
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">span</span><span>.</span><span style="color:#bf616a;">SetAttributes</span><span>(
+</span><span>        </span><span style="color:#bf616a;">attribute</span><span>.</span><span style="color:#bf616a;">Int</span><span>(&quot;</span><span style="color:#a3be8c;">template.output_bytes</span><span>&quot;, </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Len</span><span>()),
+</span><span>    )
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Bytes</span><span>(), </span><span style="color:#d08770;">nil
+</span><span>}
+</span></code></pre>
+<p>Traces show where render time goes in the request lifecycle.</p>
+<h2 id="code-generation-with-templates">Code Generation with Templates</h2>
+<p>Templates are excellent for generating Go code:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// model.tmpl
+</span><span style="color:#b48ead;">type </span><span>{{.</span><span style="color:#bf616a;">Name</span><span>}} </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Fields</span><span>}}
+</span><span>    {{.</span><span style="color:#bf616a;">Name</span><span>}} {{.</span><span style="color:#bf616a;">Type</span><span>}} `</span><span style="color:#a3be8c;">json:&quot;</span><span>{{.</span><span style="color:#bf616a;">JSONName</span><span>}}</span><span style="color:#a3be8c;">&quot;</span><span>`
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>}
+</span></code></pre>
+<p>Generator:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">model.tmpl</span><span>&quot;))
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">data </span><span>:= </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>        </span><span style="color:#bf616a;">Name   </span><span style="color:#b48ead;">string
+</span><span>        </span><span style="color:#bf616a;">Fields </span><span>[]</span><span style="color:#b48ead;">Field
+</span><span>    }{
+</span><span>        </span><span style="color:#bf616a;">Name</span><span>: &quot;</span><span style="color:#a3be8c;">User</span><span>&quot;,
+</span><span>        </span><span style="color:#bf616a;">Fields</span><span>: []</span><span style="color:#b48ead;">Field</span><span>{
+</span><span>            {&quot;</span><span style="color:#a3be8c;">ID</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">int</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">id</span><span>&quot;},
+</span><span>            {&quot;</span><span style="color:#a3be8c;">Email</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">string</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">email</span><span>&quot;},
+</span><span>        },
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">f</span><span>, </span><span style="color:#bf616a;">_ </span><span>:= </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Create</span><span>(&quot;</span><span style="color:#a3be8c;">user_gen.go</span><span>&quot;)
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">f</span><span>.</span><span style="color:#bf616a;">Close</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Fprintln</span><span>(</span><span style="color:#bf616a;">f</span><span>, &quot;</span><span style="color:#a3be8c;">// Code generated by gen.go; DO NOT EDIT.</span><span>&quot;)
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">f</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p><strong>Critical</strong>: Always run <code>go fmt</code> and <code>go vet</code> on generated code.</p>
+<h3 id="deterministic-output">Deterministic Output</h3>
+<p>For generated code that goes into version control:</p>
+<ol>
+<li><strong>Sort all inputs</strong> (never iterate maps directly)</li>
+<li><strong>No timestamps</strong> unless strictly necessary</li>
+<li><strong>Stable field order</strong></li>
+<li><strong>Clear "generated" header</strong></li>
+</ol>
+<p>Reviewers should see meaningful diffs.</p>
+<h2 id="canary-rollouts">Canary Rollouts</h2>
+<p>Roll out template changes gradually:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">RenderService</span><span>) </span><span style="color:#8fa1b3;">selectVersion</span><span>(</span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">requestID </span><span style="color:#b48ead;">string</span><span>) </span><span style="color:#b48ead;">string </span><span>{
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">canary</span><span>[</span><span style="color:#bf616a;">name</span><span>] == &quot;&quot; {
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">current</span><span>[</span><span style="color:#bf616a;">name</span><span>]  </span><span style="color:#65737e;">// No canary active
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Hash request ID for consistent bucketing
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">hash</span><span>(</span><span style="color:#bf616a;">requestID</span><span>)%</span><span style="color:#d08770;">100 </span><span>&lt; </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">canaryPercent</span><span>[</span><span style="color:#bf616a;">name</span><span>] {
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">canary</span><span>[</span><span style="color:#bf616a;">name</span><span>]
+</span><span>    }
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">current</span><span>[</span><span style="color:#bf616a;">name</span><span>]
+</span><span>}
+</span></code></pre>
+<p>Start at 1%, watch metrics, scale up. Rollback = set percentage to 0.</p>
+<h2 id="incident-response">Incident Response</h2>
+<h3 id="common-template-incidents">Common Template Incidents</h3>
+<table><thead><tr><th>Symptom</th><th>Likely Cause</th></tr></thead><tbody>
+<tr><td>Panic in render</td><td>Nil field access</td></tr>
+<tr><td>Empty output</td><td>Wrong template name or empty data</td></tr>
+<tr><td>Malformed HTML</td><td>Unclosed tags, bad escaping</td></tr>
+<tr><td>Slow renders</td><td>Large data, complex loops</td></tr>
+<tr><td>Memory spike</td><td>Unbounded output</td></tr>
+</tbody></table>
+<h3 id="runbook">Runbook</h3>
+<p><strong>1. Detect</strong>: Monitor for render errors, latency spikes, or downstream complaints.</p>
+<p><strong>2. Mitigate</strong>:</p>
+<ul>
+<li>Rollback to previous template version (config change, no deploy)</li>
+<li>Or disable feature flag if template is behind one</li>
+</ul>
+<p><strong>3. Investigate</strong>:</p>
+<ul>
+<li>Check render error logs for specific failure</li>
+<li>Replay with captured data locally</li>
+<li>Add failing case to tests</li>
+</ul>
+<p><strong>4. Prevent</strong>:</p>
+<ul>
+<li>Add regression test</li>
+<li>Improve nil guards</li>
+<li>Add size limits if missing</li>
+</ul>
+<h3 id="the-golden-rule">The Golden Rule</h3>
+<blockquote>
+<p><strong>If rollback isn't instant, your system isn't ready for production.</strong></p>
+</blockquote>
+<p>Template changes should be reversible in seconds via config, not minutes via deployment.</p>
+<h2 id="governance-at-scale">Governance at Scale</h2>
+<p>When templates affect users, treat them like code:</p>
+<ol>
+<li><strong>Ownership</strong>: Every template has an owner team</li>
+<li><strong>Review</strong>: Changes require PR review</li>
+<li><strong>Testing</strong>: Golden file tests, fuzz tests</li>
+<li><strong>Versioning</strong>: Immutable versions, config-driven selection</li>
+<li><strong>Observability</strong>: Metrics and tracing on every render</li>
+<li><strong>Rollback</strong>: Instant via config</li>
+</ol>
+<p>This is the same discipline you apply to databases, APIs, and critical services.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Centralize rendering</strong> when multiple services share templates</li>
+<li><strong>Version templates immutably</strong>—rollback via config, not deploy</li>
+<li><strong>Observe everything</strong>—latency, errors, output size</li>
+<li><strong>Generate code carefully</strong>—deterministic, formatted, vetted</li>
+<li><strong>Roll out like code</strong>—gradually, with metrics</li>
+<li><strong>Treat templates as infrastructure</strong>—because they are</li>
+</ol>
+<h2 id="the-full-picture">The Full Picture</h2>
+<p>Over this series:</p>
+<ul>
+<li><strong>Part 1</strong>: The mental model (dot, parsing, execution)</li>
+<li><strong>Part 2</strong>: Patterns (with, range, functions, composition)</li>
+<li><strong>Part 3</strong>: Production (debugging, caching, security)</li>
+<li><strong>Part 4</strong>: Operations (services, versioning, observability)</li>
+</ul>
+<p>Go templates are simple in syntax but require discipline at scale. Treat them as the rendering infrastructure they are, and they'll serve you well.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-signals/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Handling OS Signals in Go</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-templates-part-3/">
+                                <span class="button__text">Go Templates Part 3: Production Hardening</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

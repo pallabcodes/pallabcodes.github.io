@@ -7,7 +7,39 @@
       <generator>Zola</generator>
       <language>en</language>
       <atom:link href="https://pallabcodes.github.io/rss.xml" rel="self" type="application/rss+xml"/>
-      <lastBuildDate>Thu, 18 Dec 2025 00:00:00 +0000</lastBuildDate>
+      <lastBuildDate>Fri, 19 Dec 2025 00:00:00 +0000</lastBuildDate>
+      <item>
+          <title>Go Templates Part 1: The Mental Model</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-templates-part-1/</link>
+          <guid>https://pallabcodes.github.io/go-templates-part-1/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-templates-part-1/">&lt;p&gt;Go&#x27;s &lt;code&gt;text&#x2F;template&lt;&#x2F;code&gt; package looks simple until you actually use it. Then you hit the dot, get confused by context, and wonder why your template panics on nil. This post builds the mental model you need.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Go Templates Part 2: Patterns That Scale</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-templates-part-2/</link>
+          <guid>https://pallabcodes.github.io/go-templates-part-2/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-templates-part-2/">&lt;p&gt;Part 1 covered the mental model. Now let&#x27;s look at the patterns you&#x27;ll actually use in production: context control, iteration, functions, and composition.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Go Templates Part 3: Production Hardening</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-templates-part-3/</link>
+          <guid>https://pallabcodes.github.io/go-templates-part-3/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-templates-part-3/">&lt;p&gt;Templates look harmless until they start panicking in production at 3 AM. This post covers the real-world concerns: debugging execution errors, caching safely, avoiding security mistakes, and keeping things fast.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Go Templates Part 4: Operating Templates at Scale</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-templates-part-4/</link>
+          <guid>https://pallabcodes.github.io/go-templates-part-4/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-templates-part-4/">&lt;p&gt;At a certain scale, templates become infrastructure. They need versioning, observability, rollback, and operational runbooks. This post covers how to treat templates as first-class production assets.&lt;&#x2F;p&gt;</description>
+      </item>
       <item>
           <title>Handling OS Signals in Go</title>
           <pubDate>Thu, 18 Dec 2025 00:00:00 +0000</pubDate>

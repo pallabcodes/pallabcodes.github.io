@@ -1,0 +1,317 @@
++++
+title = "Go Templates Part 4: Operating Templates at Scale"
+date = 2025-12-19
+description = "Template services, versioning, observability, code generation, and incident response for production systems"
+[taxonomies]
+tags = ["go", "templates", "infrastructure", "observability"]
++++
+
+At a certain scale, templates become infrastructure. They need versioning, observability, rollback, and operational runbooks. This post covers how to treat templates as first-class production assets.
+
+<!-- more -->
+
+## When Templates Become Infrastructure
+
+Templates become infrastructure when:
+- Multiple services render the same templates
+- Template bugs cause user-facing incidents
+- Changes need review and rollback capability
+- Rendering latency appears in your P95
+
+At that point, you're not "using templates"—you're operating them.
+
+## Building a Template Service
+
+### Why Centralize?
+
+Instead of each service parsing its own templates:
+
+```go
+// Every service does this
+var tmpl = template.Must(template.ParseFiles("email.html"))
+```
+
+Build a central render service:
+
+```go
+POST /render
+{
+  "template": "invoice_v2",
+  "data": { "customer": "Alice", "total": "100.00" }
+}
+```
+
+Benefits:
+- Single source of truth
+- Centralized security
+- Unified observability
+- Easy rollback
+
+### Minimal Implementation
+
+```go
+type RenderService struct {
+    templates map[string]*template.Template
+    maxOutput int
+}
+
+func (s *RenderService) Render(name string, data any) ([]byte, error) {
+    tmpl, ok := s.templates[name]
+    if !ok {
+        return nil, fmt.Errorf("template %q not found", name)
+    }
+
+    var buf bytes.Buffer
+    if err := tmpl.Execute(&buf, data); err != nil {
+        return nil, fmt.Errorf("execute: %w", err)
+    }
+
+    if buf.Len() > s.maxOutput {
+        return nil, errors.New("output exceeds size limit")
+    }
+
+    return buf.Bytes(), nil
+}
+```
+
+Clients send data, service returns rendered output. Templates never leave the service.
+
+## Template Versioning
+
+### Immutable Versions
+
+Never mutate a template in place. Version it:
+
+```
+invoice_v1.html
+invoice_v2.html
+invoice_v3.html
+```
+
+This gives you:
+- Rollback capability
+- A/B testing
+- Gradual migration
+- Audit trail
+
+### Configuration-Driven Selection
+
+```json
+{
+  "invoice": "invoice_v2",
+  "receipt": "receipt_v3"
+}
+```
+
+Rollback = config change, not deployment.
+
+### Registry Pattern
+
+```go
+type VersionedTemplates struct {
+    versions map[string]*template.Template
+    current  map[string]string  // logical name → version
+}
+
+func (t *VersionedTemplates) Get(name string) (*template.Template, error) {
+    version := t.current[name]
+    if version == "" {
+        return nil, fmt.Errorf("no current version for %q", name)
+    }
+    return t.versions[version], nil
+}
+```
+
+Change `current` mapping to switch versions instantly.
+
+## Observability
+
+### What to Measure
+
+```go
+func (s *RenderService) Render(ctx context.Context, name string, data any) ([]byte, error) {
+    start := time.Now()
+    defer func() {
+        renderDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
+    }()
+
+    tmpl, ok := s.templates[name]
+    if !ok {
+        renderErrors.WithLabelValues(name, "not_found").Inc()
+        return nil, fmt.Errorf("template %q not found", name)
+    }
+
+    var buf bytes.Buffer
+    if err := tmpl.Execute(&buf, data); err != nil {
+        renderErrors.WithLabelValues(name, "execute").Inc()
+        return nil, err
+    }
+
+    renderOutputSize.WithLabelValues(name).Observe(float64(buf.Len()))
+    return buf.Bytes(), nil
+}
+```
+
+Key metrics:
+- **Latency per template** (histogram)
+- **Error rate per template** (counter)
+- **Output size** (histogram—catches runaway templates)
+
+### Tracing Integration
+
+```go
+func (s *RenderService) Render(ctx context.Context, name string, data any) ([]byte, error) {
+    ctx, span := tracer.Start(ctx, "template.render",
+        trace.WithAttributes(attribute.String("template.name", name)),
+    )
+    defer span.End()
+
+    // ... render logic ...
+
+    span.SetAttributes(
+        attribute.Int("template.output_bytes", buf.Len()),
+    )
+    return buf.Bytes(), nil
+}
+```
+
+Traces show where render time goes in the request lifecycle.
+
+## Code Generation with Templates
+
+Templates are excellent for generating Go code:
+
+```go
+// model.tmpl
+type {{.Name}} struct {
+{{range .Fields}}
+    {{.Name}} {{.Type}} `json:"{{.JSONName}}"`
+{{end}}
+}
+```
+
+Generator:
+
+```go
+func main() {
+    tmpl := template.Must(template.ParseFiles("model.tmpl"))
+
+    data := struct {
+        Name   string
+        Fields []Field
+    }{
+        Name: "User",
+        Fields: []Field{
+            {"ID", "int", "id"},
+            {"Email", "string", "email"},
+        },
+    }
+
+    f, _ := os.Create("user_gen.go")
+    defer f.Close()
+
+    fmt.Fprintln(f, "// Code generated by gen.go; DO NOT EDIT.")
+    tmpl.Execute(f, data)
+}
+```
+
+**Critical**: Always run `go fmt` and `go vet` on generated code.
+
+### Deterministic Output
+
+For generated code that goes into version control:
+
+1. **Sort all inputs** (never iterate maps directly)
+2. **No timestamps** unless strictly necessary
+3. **Stable field order**
+4. **Clear "generated" header**
+
+Reviewers should see meaningful diffs.
+
+## Canary Rollouts
+
+Roll out template changes gradually:
+
+```go
+func (s *RenderService) selectVersion(name string, requestID string) string {
+    if s.canary[name] == "" {
+        return s.current[name]  // No canary active
+    }
+
+    // Hash request ID for consistent bucketing
+    if hash(requestID)%100 < s.canaryPercent[name] {
+        return s.canary[name]
+    }
+    return s.current[name]
+}
+```
+
+Start at 1%, watch metrics, scale up. Rollback = set percentage to 0.
+
+## Incident Response
+
+### Common Template Incidents
+
+| Symptom | Likely Cause |
+|---------|--------------|
+| Panic in render | Nil field access |
+| Empty output | Wrong template name or empty data |
+| Malformed HTML | Unclosed tags, bad escaping |
+| Slow renders | Large data, complex loops |
+| Memory spike | Unbounded output |
+
+### Runbook
+
+**1. Detect**: Monitor for render errors, latency spikes, or downstream complaints.
+
+**2. Mitigate**: 
+- Rollback to previous template version (config change, no deploy)
+- Or disable feature flag if template is behind one
+
+**3. Investigate**:
+- Check render error logs for specific failure
+- Replay with captured data locally
+- Add failing case to tests
+
+**4. Prevent**:
+- Add regression test
+- Improve nil guards
+- Add size limits if missing
+
+### The Golden Rule
+
+> **If rollback isn't instant, your system isn't ready for production.**
+
+Template changes should be reversible in seconds via config, not minutes via deployment.
+
+## Governance at Scale
+
+When templates affect users, treat them like code:
+
+1. **Ownership**: Every template has an owner team
+2. **Review**: Changes require PR review
+3. **Testing**: Golden file tests, fuzz tests
+4. **Versioning**: Immutable versions, config-driven selection
+5. **Observability**: Metrics and tracing on every render
+6. **Rollback**: Instant via config
+
+This is the same discipline you apply to databases, APIs, and critical services.
+
+## Key Takeaways
+
+1. **Centralize rendering** when multiple services share templates
+2. **Version templates immutably**—rollback via config, not deploy
+3. **Observe everything**—latency, errors, output size
+4. **Generate code carefully**—deterministic, formatted, vetted
+5. **Roll out like code**—gradually, with metrics
+6. **Treat templates as infrastructure**—because they are
+
+## The Full Picture
+
+Over this series:
+- **Part 1**: The mental model (dot, parsing, execution)
+- **Part 2**: Patterns (with, range, functions, composition)
+- **Part 3**: Production (debugging, caching, security)
+- **Part 4**: Operations (services, versioning, observability)
+
+Go templates are simple in syntax but require discipline at scale. Treat them as the rendering infrastructure they are, and they'll serve you well.

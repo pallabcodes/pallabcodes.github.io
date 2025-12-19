@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Templates Part 2: Patterns That Scale | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Context rebinding with 'with', effective range patterns, custom functions, and template composition">
+
+    <meta property="og:description" content="Context rebinding with 'with', effective range patterns, custom functions, and template composition">
+    <meta property="og:title" content="Go Templates Part 2: Patterns That Scale | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-templates-part-2/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Context rebinding with 'with', effective range patterns, custom functions, and template composition">
+    <meta name="twitter:title" content="Go Templates Part 2: Patterns That Scale | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-templates-part-2/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-templates-part-2/">Go Templates Part 2: Patterns That Scale</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/patterns/">#patterns</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/templates/">#templates</a></span>
+    
+
+        <div class="post-content">
+            <p>Part 1 covered the mental model. Now let's look at the patterns you'll actually use in production: context control, iteration, functions, and composition.</p>
+<span id="continue-reading"></span><h2 id="context-rebinding-with-with">Context Rebinding with <code>with</code></h2>
+<p><code>with</code> does two things at once:</p>
+<ol>
+<li>Checks if a value exists (non-empty/non-nil)</li>
+<li>Rebinds <code>.</code> to that value</li>
+</ol>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">with </span><span>.</span><span style="color:#bf616a;">User</span><span>}}
+</span><span>  </span><span style="color:#bf616a;">Name</span><span>: {{.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span>  </span><span style="color:#bf616a;">Email</span><span>: {{.</span><span style="color:#bf616a;">Email</span><span>}}
+</span><span>{{</span><span style="color:#b48ead;">else</span><span>}}
+</span><span>  </span><span style="color:#bf616a;">No user found
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>Inside the <code>with</code> block, <code>.</code> is <code>.User</code>, not the original data. You've "zoomed in."</p>
+<h3 id="why-this-matters">Why This Matters</h3>
+<p>Without <code>with</code>, you repeat yourself:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Verbose
+</span><span style="color:#bf616a;">Name</span><span>: {{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span style="color:#bf616a;">Email</span><span>: {{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Email</span><span>}}
+</span><span style="color:#bf616a;">Phone</span><span>: {{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Phone</span><span>}}
+</span><span>
+</span><span style="color:#65737e;">// Clean with context rebinding
+</span><span>{{</span><span style="color:#bf616a;">with </span><span>.</span><span style="color:#bf616a;">User</span><span>}}
+</span><span style="color:#bf616a;">Name</span><span>: {{.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span style="color:#bf616a;">Email</span><span>: {{.</span><span style="color:#bf616a;">Email</span><span>}}
+</span><span style="color:#bf616a;">Phone</span><span>: {{.</span><span style="color:#bf616a;">Phone</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<h3 id="nil-safety">Nil Safety</h3>
+<p><code>with</code> also guards against nil:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Panics if .User is nil
+</span><span>{{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span>
+</span><span style="color:#65737e;">// Safe - else branch runs if .User is nil
+</span><span>{{</span><span style="color:#bf616a;">with </span><span>.</span><span style="color:#bf616a;">User</span><span>}}{{.</span><span style="color:#bf616a;">Name</span><span>}}{{</span><span style="color:#b48ead;">else</span><span>}}</span><span style="color:#bf616a;">unknown</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>This is why you'll see <code>with</code> throughout production Go templates—it's both cleaner and safer.</p>
+<h2 id="range-patterns">Range Patterns</h2>
+<h3 id="basic-iteration">Basic Iteration</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items</span><span>}}
+</span><span>  - {{.}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>Inside range, <code>.</code> becomes each element.</p>
+<h3 id="with-index">With Index</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range</span><span> $</span><span style="color:#bf616a;">index</span><span>, $</span><span style="color:#bf616a;">item </span><span>:= .</span><span style="color:#bf616a;">Items</span><span>}}
+</span><span>  {{$</span><span style="color:#bf616a;">index</span><span>}}: {{$</span><span style="color:#bf616a;">item</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<h3 id="empty-collection-handling">Empty Collection Handling</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items</span><span>}}
+</span><span>  - {{.}}
+</span><span>{{</span><span style="color:#b48ead;">else</span><span>}}
+</span><span>  </span><span style="color:#bf616a;">No items found
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>The <code>else</code> block runs when the collection is empty.</p>
+<h3 id="maps-use-with-caution">Maps (Use With Caution)</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range</span><span> $</span><span style="color:#bf616a;">key</span><span>, $</span><span style="color:#bf616a;">value </span><span>:= .</span><span style="color:#bf616a;">Config</span><span>}}
+</span><span>  {{$</span><span style="color:#bf616a;">key</span><span>}} = {{$</span><span style="color:#bf616a;">value</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p><strong>Warning</strong>: Map iteration order is random. If you need deterministic output (for diffs, tests, or reproducibility), sort keys in Go before rendering:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>KV </span><span style="color:#b48ead;">struct </span><span>{ </span><span style="color:#bf616a;">Key</span><span>, </span><span style="color:#bf616a;">Value </span><span style="color:#b48ead;">string </span><span>}
+</span><span>
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">items </span><span>[]</span><span style="color:#b48ead;">KV
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">k</span><span>, </span><span style="color:#bf616a;">v </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">config </span><span>{
+</span><span>    </span><span style="color:#bf616a;">items </span><span>= </span><span style="color:#96b5b4;">append</span><span>(</span><span style="color:#bf616a;">items</span><span>, </span><span style="color:#bf616a;">KV</span><span>{</span><span style="color:#bf616a;">k</span><span>, </span><span style="color:#bf616a;">v</span><span>})
+</span><span>}
+</span><span style="color:#bf616a;">sort</span><span>.</span><span style="color:#bf616a;">Slice</span><span>(</span><span style="color:#bf616a;">items</span><span>, </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">i</span><span>, </span><span style="color:#bf616a;">j </span><span style="color:#b48ead;">int</span><span>) </span><span style="color:#b48ead;">bool </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">items</span><span>[</span><span style="color:#bf616a;">i</span><span>].</span><span style="color:#bf616a;">Key </span><span>&lt; </span><span style="color:#bf616a;">items</span><span>[</span><span style="color:#bf616a;">j</span><span>].</span><span style="color:#bf616a;">Key
+</span><span>})
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">items</span><span>)
+</span></code></pre>
+<h3 id="preserving-outer-context">Preserving Outer Context</h3>
+<p>Inside <code>range</code>, you lose access to the original <code>.</code>. Save it first:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{$</span><span style="color:#bf616a;">root </span><span>:= .}}
+</span><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Users</span><span>}}
+</span><span>  {{.</span><span style="color:#bf616a;">Name</span><span>}} </span><span style="color:#bf616a;">works at </span><span>{{$</span><span style="color:#bf616a;">root</span><span>.</span><span style="color:#bf616a;">Company</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<h2 id="custom-template-functions">Custom Template Functions</h2>
+<p>Templates support registered functions for formatting:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(
+</span><span>    </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">t</span><span>&quot;).
+</span><span>        </span><span style="color:#bf616a;">Funcs</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">FuncMap</span><span>{
+</span><span>            &quot;</span><span style="color:#a3be8c;">upper</span><span>&quot;: </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">ToUpper</span><span>,
+</span><span>            &quot;</span><span style="color:#a3be8c;">formatDate</span><span>&quot;: </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">t time</span><span>.</span><span style="color:#b48ead;">Time</span><span>) </span><span style="color:#b48ead;">string </span><span>{
+</span><span>                </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">t</span><span>.</span><span style="color:#bf616a;">Format</span><span>(&quot;</span><span style="color:#a3be8c;">2006-01-02</span><span>&quot;)
+</span><span>            },
+</span><span>        }).
+</span><span>        </span><span style="color:#bf616a;">Parse</span><span>(`{{upper .</span><span style="color:#bf616a;">Name</span><span>}}</span><span style="color:#a3be8c;">, joined </span><span>{{formatDate .</span><span style="color:#bf616a;">JoinedAt</span><span>}}`),
+</span><span>)
+</span></code></pre>
+<h3 id="function-rules">Function Rules</h3>
+<p>Template functions must be:</p>
+<ul>
+<li><strong>Pure</strong>: same input → same output</li>
+<li><strong>Side-effect free</strong>: no mutations, no I/O</li>
+<li><strong>Fast</strong>: called potentially many times</li>
+<li><strong>Panic-safe</strong>: handle edge cases gracefully</li>
+</ul>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ✅ Good: pure formatting
+</span><span>&quot;</span><span style="color:#a3be8c;">formatMoney</span><span>&quot;: </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">cents </span><span style="color:#b48ead;">int</span><span>) </span><span style="color:#b48ead;">string </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Sprintf</span><span>(&quot;</span><span style="color:#a3be8c;">$</span><span style="color:#d08770;">%.2f</span><span>&quot;, </span><span style="color:#bf616a;">float64</span><span>(</span><span style="color:#bf616a;">cents</span><span>)/</span><span style="color:#d08770;">100</span><span>)
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;">// ❌ Bad: side effects
+</span><span>&quot;</span><span style="color:#a3be8c;">saveToDb</span><span>&quot;: </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">Data</span><span>) </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">db</span><span>.</span><span style="color:#bf616a;">Save</span><span>(</span><span style="color:#bf616a;">data</span><span>)  </span><span style="color:#65737e;">// Never do this
+</span><span>}
+</span></code></pre>
+<p>The rule: <strong>functions format data, they don't fetch or mutate it</strong>.</p>
+<h3 id="common-functions-worth-having">Common Functions Worth Having</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">FuncMap</span><span>{
+</span><span>    &quot;</span><span style="color:#a3be8c;">upper</span><span>&quot;:    </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">ToUpper</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">lower</span><span>&quot;:    </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">ToLower</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">join</span><span>&quot;:     </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">Join</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">contains</span><span>&quot;: </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">Contains</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">default</span><span>&quot;: </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">def</span><span>, </span><span style="color:#bf616a;">val </span><span style="color:#b48ead;">any</span><span>) </span><span style="color:#b48ead;">any </span><span>{
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">val </span><span>== </span><span style="color:#d08770;">nil </span><span>|| </span><span style="color:#bf616a;">val </span><span>== &quot;&quot; {
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">def
+</span><span>        }
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">val
+</span><span>    },
+</span><span>}
+</span></code></pre>
+<h2 id="template-composition">Template Composition</h2>
+<p>Go templates compose through <code>define</code>, <code>template</code>, and <code>block</code>.</p>
+<h3 id="defining-reusable-templates">Defining Reusable Templates</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">header</span><span>&quot;}}
+</span><span>&lt;</span><span style="color:#bf616a;">header</span><span>&gt;{{.</span><span style="color:#bf616a;">Title</span><span>}}&lt;/</span><span style="color:#bf616a;">header</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>
+</span><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">footer</span><span>&quot;}}
+</span><span>&lt;</span><span style="color:#bf616a;">footer</span><span>&gt;© {{.</span><span style="color:#bf616a;">Year</span><span>}}&lt;/</span><span style="color:#bf616a;">footer</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>
+</span><span>&lt;</span><span style="color:#bf616a;">html</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">template </span><span>&quot;</span><span style="color:#a3be8c;">header</span><span>&quot; .}}
+</span><span>&lt;</span><span style="color:#bf616a;">main</span><span>&gt;{{.</span><span style="color:#bf616a;">Content</span><span>}}&lt;/</span><span style="color:#bf616a;">main</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">template </span><span>&quot;</span><span style="color:#a3be8c;">footer</span><span>&quot; .}}
+</span><span>&lt;/</span><span style="color:#bf616a;">html</span><span>&gt;
+</span></code></pre>
+<p>Note: you must pass context explicitly with <code>{{template "name" .}}</code>. Without the <code>.</code>, the sub-template gets nil.</p>
+<h3 id="base-layout-pattern">Base Layout Pattern</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// base.html
+</span><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">base</span><span>&quot;}}
+</span><span>&lt;!</span><span style="color:#bf616a;">DOCTYPE html</span><span>&gt;
+</span><span>&lt;</span><span style="color:#bf616a;">html</span><span>&gt;
+</span><span>&lt;</span><span style="color:#bf616a;">head</span><span>&gt;&lt;</span><span style="color:#bf616a;">title</span><span>&gt;{{</span><span style="color:#bf616a;">template </span><span>&quot;</span><span style="color:#a3be8c;">title</span><span>&quot; .}}&lt;/</span><span style="color:#bf616a;">title</span><span>&gt;&lt;/</span><span style="color:#bf616a;">head</span><span>&gt;
+</span><span>&lt;</span><span style="color:#bf616a;">body</span><span>&gt;
+</span><span>  {{</span><span style="color:#bf616a;">template </span><span>&quot;</span><span style="color:#a3be8c;">content</span><span>&quot; .}}
+</span><span>&lt;/</span><span style="color:#bf616a;">body</span><span>&gt;
+</span><span>&lt;/</span><span style="color:#bf616a;">html</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>
+</span><span style="color:#65737e;">// page.html
+</span><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">title</span><span>&quot;}}</span><span style="color:#bf616a;">My Page</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">content</span><span>&quot;}}
+</span><span>&lt;</span><span style="color:#bf616a;">h1</span><span>&gt;</span><span style="color:#bf616a;">Hello </span><span>{{.</span><span style="color:#bf616a;">Name</span><span>}}&lt;/</span><span style="color:#bf616a;">h1</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>Execute with:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">ExecuteTemplate</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">base</span><span>&quot;, </span><span style="color:#bf616a;">data</span><span>)
+</span></code></pre>
+<h3 id="block-define-with-default">Block: Define with Default</h3>
+<p><code>block</code> combines definition with a default:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">base</span><span>&quot;}}
+</span><span>&lt;</span><span style="color:#bf616a;">html</span><span>&gt;
+</span><span>&lt;</span><span style="color:#bf616a;">body</span><span>&gt;
+</span><span>  {{</span><span style="color:#bf616a;">block </span><span>&quot;</span><span style="color:#a3be8c;">content</span><span>&quot; .}}
+</span><span>    &lt;</span><span style="color:#bf616a;">p</span><span>&gt;</span><span style="color:#bf616a;">Default content</span><span>&lt;/</span><span style="color:#bf616a;">p</span><span>&gt;
+</span><span>  {{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>&lt;/</span><span style="color:#bf616a;">body</span><span>&gt;
+</span><span>&lt;/</span><span style="color:#bf616a;">html</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>If "content" isn't redefined elsewhere, the default renders. If it is, the override wins.</p>
+<h2 id="whitespace-control">Whitespace Control</h2>
+<p>Templates preserve whitespace, which can mess up your output:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items</span><span>}}
+</span><span>  {{.}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>This produces extra newlines. Use <code>-</code> to trim:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#b48ead;">range </span><span>.</span><span style="color:#bf616a;">Items </span><span>-}}
+</span><span>  {{.}}
+</span><span>{{- </span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p><code>{{-</code> trims whitespace before, <code>-}}</code> trims after.</p>
+<h2 id="putting-it-together">Putting It Together</h2>
+<p>Real templates combine these patterns:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">define </span><span>&quot;</span><span style="color:#a3be8c;">user-list</span><span>&quot;}}
+</span><span>{{</span><span style="color:#bf616a;">with </span><span>.</span><span style="color:#bf616a;">Users</span><span>}}
+</span><span>&lt;</span><span style="color:#bf616a;">ul</span><span>&gt;
+</span><span>{{</span><span style="color:#b48ead;">range </span><span>. -}}
+</span><span>  &lt;</span><span style="color:#bf616a;">li</span><span>&gt;{{.</span><span style="color:#bf616a;">Name </span><span>| </span><span style="color:#bf616a;">upper</span><span>}} - {{.</span><span style="color:#bf616a;">Email</span><span>}}&lt;/</span><span style="color:#bf616a;">li</span><span>&gt;
+</span><span>{{- </span><span style="color:#bf616a;">end</span><span>}}
+</span><span>&lt;/</span><span style="color:#bf616a;">ul</span><span>&gt;
+</span><span>{{</span><span style="color:#b48ead;">else</span><span>}}
+</span><span>&lt;</span><span style="color:#bf616a;">p</span><span>&gt;</span><span style="color:#bf616a;">No users found</span><span>&lt;/</span><span style="color:#bf616a;">p</span><span>&gt;
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p>This template:</p>
+<ul>
+<li>Guards against nil <code>.Users</code> with <code>with</code></li>
+<li>Handles empty list with <code>else</code></li>
+<li>Uses range for iteration</li>
+<li>Pipes through <code>upper</code> function</li>
+<li>Controls whitespace with <code>-</code></li>
+</ul>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong><code>with</code> zooms in</strong> and guards nil in one construct</li>
+<li><strong>Range changes context</strong>—save <code>$root</code> if you need outer data</li>
+<li><strong>Functions must be pure</strong>—formatting only</li>
+<li><strong>Composition via define/template</strong>—always pass context explicitly</li>
+<li><strong>Control whitespace</strong> with <code>{{-</code> and <code>-}}</code></li>
+</ol>
+<p>Next: <a href="/go-templates-part-3">Part 3</a> covers production concerns—debugging, caching, security, and performance.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-templates-part-3/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Templates Part 3: Production Hardening</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-templates-part-1/">
+                                <span class="button__text">Go Templates Part 1: The Mental Model</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Templates Part 3: Production Hardening | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Debugging, caching, security pitfalls, and performance considerations for production Go templates">
+
+    <meta property="og:description" content="Debugging, caching, security pitfalls, and performance considerations for production Go templates">
+    <meta property="og:title" content="Go Templates Part 3: Production Hardening | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-templates-part-3/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Debugging, caching, security pitfalls, and performance considerations for production Go templates">
+    <meta name="twitter:title" content="Go Templates Part 3: Production Hardening | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-templates-part-3/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-templates-part-3/">Go Templates Part 3: Production Hardening</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/security/">#security</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/templates/">#templates</a></span>
+    
+
+        <div class="post-content">
+            <p>Templates look harmless until they start panicking in production at 3 AM. This post covers the real-world concerns: debugging execution errors, caching safely, avoiding security mistakes, and keeping things fast.</p>
+<span id="continue-reading"></span><h2 id="debugging-template-failures">Debugging Template Failures</h2>
+<p>Template errors fall into two categories: parse-time and execution-time.</p>
+<h3 id="parse-time-errors">Parse-Time Errors</h3>
+<p>These happen when you call <code>Parse()</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">template</span><span>: </span><span style="color:#bf616a;">page</span><span>.</span><span style="color:#bf616a;">html</span><span>:</span><span style="color:#d08770;">12</span><span>: </span><span style="color:#bf616a;">unexpected </span><span>&quot;{{</span><span style="color:#b48ead;">end</span><span>}}&quot;
+</span></code></pre>
+<p>Parse errors mean your template syntax is broken. Find them early:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Crash at startup, not at request time
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">tmpl </span><span>= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">page.html</span><span>&quot;))
+</span></code></pre>
+<p><code>Must</code> panics on parse error. In production, you want to fail fast.</p>
+<h3 id="execution-time-errors">Execution-Time Errors</h3>
+<p>These happen during <code>Execute()</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">template</span><span>: </span><span style="color:#bf616a;">page</span><span>:</span><span style="color:#d08770;">5</span><span>:</span><span style="color:#d08770;">18</span><span>: </span><span style="color:#bf616a;">executing </span><span>&quot;</span><span style="color:#a3be8c;">page</span><span>&quot; </span><span style="color:#bf616a;">at </span><span>&lt;.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Name</span><span>&gt;: 
+</span><span>    </span><span style="color:#bf616a;">can</span><span>&#39;</span><span style="color:#bf616a;">t evaluate field Name in </span><span style="color:#b48ead;">type </span><span>*</span><span style="color:#bf616a;">main</span><span>.</span><span style="color:#bf616a;">User </span><span>(</span><span style="color:#d08770;">nil </span><span style="color:#bf616a;">pointer</span><span>)
+</span></code></pre>
+<p>This means <code>.User</code> was nil when the template tried to access <code>.Name</code>.</p>
+<h3 id="debugging-techniques">Debugging Techniques</h3>
+<p><strong>1. Dump the context</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>{{</span><span style="color:#bf616a;">printf </span><span>&quot;</span><span style="color:#d08770;">%#v</span><span>&quot; .}}
+</span></code></pre>
+<p>This prints the Go representation of <code>.</code>. Useful when you're confused about what data you actually have.</p>
+<p><strong>2. Use <code>with</code> for nil safety</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Panics on nil
+</span><span>{{.</span><span style="color:#bf616a;">User</span><span>.</span><span style="color:#bf616a;">Name</span><span>}}
+</span><span>
+</span><span style="color:#65737e;">// Handles nil gracefully
+</span><span>{{</span><span style="color:#bf616a;">with </span><span>.</span><span style="color:#bf616a;">User</span><span>}}{{.</span><span style="color:#bf616a;">Name</span><span>}}{{</span><span style="color:#b48ead;">else</span><span>}}</span><span style="color:#bf616a;">no user</span><span>{{</span><span style="color:#bf616a;">end</span><span>}}
+</span></code></pre>
+<p><strong>3. Always check <code>Execute</code> errors</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">data</span><span>); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Printf</span><span>(&quot;</span><span style="color:#a3be8c;">template error: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
+</span><span>    </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Error</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">render failed</span><span>&quot;, </span><span style="color:#d08770;">500</span><span>)
+</span><span>    </span><span style="color:#b48ead;">return
+</span><span>}
+</span></code></pre>
+<p>Never ignore the error from <code>Execute</code>. It tells you exactly what went wrong.</p>
+<h2 id="template-caching-strategy">Template Caching Strategy</h2>
+<h3 id="the-wrong-way">The Wrong Way</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#65737e;">// Parsing on every request
+</span><span>    </span><span style="color:#bf616a;">tmpl </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseFiles</span><span>(&quot;</span><span style="color:#a3be8c;">page.html</span><span>&quot;))
+</span><span>    </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Problems:</p>
+<ul>
+<li>Slow (parsing is expensive)</li>
+<li>Memory churn (allocations every request)</li>
+<li>Late failure (parse errors at request time)</li>
+</ul>
+<h3 id="the-right-way">The Right Way</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">templates </span><span>= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(
+</span><span>    </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseGlob</span><span>(&quot;</span><span style="color:#a3be8c;">templates/*.html</span><span>&quot;),
+</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">templates</span><span>.</span><span style="color:#bf616a;">ExecuteTemplate</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">page.html</span><span>&quot;, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Templates are parsed once at startup, then executed many times.</p>
+<h3 id="production-pattern-template-registry">Production Pattern: Template Registry</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>TemplateStore </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">templates </span><span>*</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#b48ead;">Template
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">NewTemplateStore</span><span>(</span><span style="color:#bf616a;">pattern </span><span style="color:#b48ead;">string</span><span>) (*</span><span style="color:#b48ead;">TemplateStore</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">t</span><span>, </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseGlob</span><span>(</span><span style="color:#bf616a;">pattern</span><span>)
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">err
+</span><span>    }
+</span><span>    </span><span style="color:#b48ead;">return </span><span>&amp;</span><span style="color:#bf616a;">TemplateStore</span><span>{</span><span style="color:#bf616a;">templates</span><span>: </span><span style="color:#bf616a;">t</span><span>}, </span><span style="color:#d08770;">nil
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">TemplateStore</span><span>) </span><span style="color:#8fa1b3;">Render</span><span>(</span><span style="color:#bf616a;">w io</span><span>.</span><span style="color:#b48ead;">Writer</span><span>, </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">any</span><span>) </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">templates</span><span>.</span><span style="color:#bf616a;">ExecuteTemplate</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Centralize template access. One place to add logging, metrics, or error handling.</p>
+<h3 id="hot-reload-in-development">Hot Reload in Development</h3>
+<p>During development, you might want templates to reload without restart:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">TemplateStore</span><span>) </span><span style="color:#8fa1b3;">Render</span><span>(</span><span style="color:#bf616a;">w io</span><span>.</span><span style="color:#b48ead;">Writer</span><span>, </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">data </span><span style="color:#b48ead;">any</span><span>) </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">devMode </span><span>{
+</span><span>        </span><span style="color:#65737e;">// Re-parse on every render (dev only)
+</span><span>        </span><span style="color:#bf616a;">t </span><span>:= </span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">Must</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">ParseGlob</span><span>(&quot;</span><span style="color:#a3be8c;">templates/*.html</span><span>&quot;))
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">t</span><span>.</span><span style="color:#bf616a;">ExecuteTemplate</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">templates</span><span>.</span><span style="color:#bf616a;">ExecuteTemplate</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Never enable this in production.</p>
+<h2 id="security-pitfalls">Security Pitfalls</h2>
+<h3 id="xss-via-wrong-package">XSS via Wrong Package</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">text/template</span><span>&quot;  </span><span style="color:#65737e;">// ❌ for HTML
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</span><span>&quot;)
+</span><span style="color:#65737e;">// Output: &lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;
+</span></code></pre>
+<p>This is an XSS vulnerability. Use <code>html/template</code> for any HTML output:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">html/template</span><span>&quot;  </span><span style="color:#65737e;">// ✅
+</span><span>
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</span><span>&quot;)
+</span><span style="color:#65737e;">// Output: &amp;lt;script&amp;gt;alert(&amp;#39;xss&amp;#39;)&amp;lt;/script&amp;gt;
+</span></code></pre>
+<p>Auto-escaping saves you.</p>
+<h3 id="data-leakage">Data Leakage</h3>
+<p>Never pass raw domain objects to templates:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ❌ Dangerous: exposes everything
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">user</span><span>)
+</span><span>
+</span><span style="color:#65737e;">// ✅ Safe: explicit view model
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">UserView</span><span>{
+</span><span>    </span><span style="color:#bf616a;">Name</span><span>:  </span><span style="color:#bf616a;">user</span><span>.</span><span style="color:#bf616a;">Name</span><span>,
+</span><span>    </span><span style="color:#bf616a;">Email</span><span>: </span><span style="color:#bf616a;">user</span><span>.</span><span style="color:#bf616a;">Email</span><span>,
+</span><span>    </span><span style="color:#65737e;">// Deliberately omit: PasswordHash, InternalID, etc.
+</span><span>})
+</span></code></pre>
+<p>Templates can access any exported field. Control what's visible.</p>
+<h3 id="unsafe-functions">Unsafe Functions</h3>
+<p>Template functions can be attack vectors:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ❌ Never do this
+</span><span style="color:#bf616a;">Funcs</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">FuncMap</span><span>{
+</span><span>    &quot;</span><span style="color:#a3be8c;">readFile</span><span>&quot;: </span><span style="color:#bf616a;">ioutil</span><span>.</span><span style="color:#bf616a;">ReadFile</span><span>,  </span><span style="color:#65737e;">// File system access
+</span><span>    &quot;</span><span style="color:#a3be8c;">env</span><span>&quot;:      </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Getenv</span><span>,        </span><span style="color:#65737e;">// Environment secrets
+</span><span>    &quot;</span><span style="color:#a3be8c;">eval</span><span>&quot;:     </span><span style="color:#bf616a;">dangerousEval</span><span>,    </span><span style="color:#65737e;">// Code execution
+</span><span>})
+</span></code></pre>
+<p>Functions should only format data:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// ✅ Safe
+</span><span style="color:#bf616a;">Funcs</span><span>(</span><span style="color:#bf616a;">template</span><span>.</span><span style="color:#bf616a;">FuncMap</span><span>{
+</span><span>    &quot;</span><span style="color:#a3be8c;">upper</span><span>&quot;:      </span><span style="color:#bf616a;">strings</span><span>.</span><span style="color:#bf616a;">ToUpper</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">formatDate</span><span>&quot;: </span><span style="color:#bf616a;">formatDate</span><span>,
+</span><span>    &quot;</span><span style="color:#a3be8c;">currency</span><span>&quot;:   </span><span style="color:#bf616a;">formatCurrency</span><span>,
+</span><span>})
+</span></code></pre>
+<h3 id="multi-tenant-template-safety">Multi-Tenant Template Safety</h3>
+<p>If different tenants share a template service:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>TenantView </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#65737e;">// Only tenant-specific, sanitized data
+</span><span>    </span><span style="color:#bf616a;">Name    </span><span style="color:#b48ead;">string
+</span><span>    </span><span style="color:#bf616a;">Items   </span><span>[]</span><span style="color:#b48ead;">ItemView
+</span><span>    </span><span style="color:#65737e;">// Never: OtherTenantData, AdminConfig, etc.
+</span><span>}
+</span></code></pre>
+<p>Never pass cross-tenant data or system internals.</p>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<h3 id="templates-are-usually-not-the-bottleneck">Templates Are Usually Not the Bottleneck</h3>
+<p>Before optimizing templates, measure. Most apps spend more time in:</p>
+<ul>
+<li>Database queries</li>
+<li>Network calls</li>
+<li>JSON serialization</li>
+</ul>
+<p>Profile first: <code>go tool pprof</code>.</p>
+<h3 id="when-templates-are-slow">When Templates Are Slow</h3>
+<p>Red flags:</p>
+<ul>
+<li>Very deep nesting</li>
+<li>Large loops with complex bodies</li>
+<li>Many function calls per element</li>
+<li>Parsing per request (the biggest one)</li>
+</ul>
+<h3 id="output-size-limits">Output Size Limits</h3>
+<p>Protect against runaway templates:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">buf bytes</span><span>.</span><span style="color:#b48ead;">Buffer
+</span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(&amp;</span><span style="color:#bf616a;">buf</span><span>, </span><span style="color:#bf616a;">data</span><span>); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">err
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Len</span><span>() &gt; </span><span style="color:#d08770;">1</span><span>&lt;&lt;</span><span style="color:#d08770;">20 </span><span>{  </span><span style="color:#65737e;">// 1MB limit
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">errors</span><span>.</span><span style="color:#bf616a;">New</span><span>(&quot;</span><span style="color:#a3be8c;">template output too large</span><span>&quot;)
+</span><span>}
+</span><span>
+</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">Write</span><span>(</span><span style="color:#bf616a;">buf</span><span>.</span><span style="color:#bf616a;">Bytes</span><span>())
+</span></code></pre>
+<p>This prevents memory exhaustion from malformed data.</p>
+<h3 id="streaming-large-outputs">Streaming Large Outputs</h3>
+<p>Templates stream by default—they write incrementally to <code>io.Writer</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Writes directly to response, low memory
+</span><span style="color:#bf616a;">tmpl</span><span>.</span><span style="color:#bf616a;">Execute</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">data</span><span>)
+</span></code></pre>
+<p>No intermediate buffer needed for normal cases.</p>
+<h2 id="comparison-go-vs-jinja-vs-handlebars">Comparison: Go vs Jinja vs Handlebars</h2>
+<table><thead><tr><th>Aspect</th><th>Go</th><th>Jinja</th><th>Handlebars</th></tr></thead><tbody>
+<tr><td>Logic in template</td><td>Minimal</td><td>Extensive</td><td>Minimal</td></tr>
+<tr><td>XSS protection</td><td>Built-in</td><td>Opt-in</td><td>Partial</td></tr>
+<tr><td>Performance</td><td>Fast</td><td>Slow</td><td>Medium</td></tr>
+<tr><td>Debugging</td><td>Harder</td><td>Easier</td><td>Medium</td></tr>
+<tr><td>Philosophy</td><td>Templates render</td><td>Templates compute</td><td>Templates render</td></tr>
+</tbody></table>
+<p>Go templates force you to prepare data in Go. This seems limiting until you realize it makes templates predictable, testable, and secure.</p>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Parse once at startup</strong>—never per request</li>
+<li><strong>Use <code>html/template</code> for HTML</strong>—always</li>
+<li><strong>Create view models</strong>—don't pass raw domain objects</li>
+<li><strong>Check <code>Execute</code> errors</strong>—they're informative</li>
+<li><strong>Guard nil access with <code>with</code></strong>—or suffer panics</li>
+<li><strong>Functions must be pure</strong>—no I/O, no mutations</li>
+</ol>
+<p>Next: <a href="/go-templates-part-4">Part 4</a> covers scaling—template services, versioning, observability, and operating templates as infrastructure.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-templates-part-4/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Templates Part 4: Operating Templates at Scale</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-templates-part-2/">
+                                <span class="button__text">Go Templates Part 2: Patterns That Scale</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
