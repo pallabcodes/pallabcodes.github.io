@@ -41,6 +41,14 @@
           <description xml:base="https://pallabcodes.github.io/go-concurrency-toolbox/">&lt;p&gt;Go gives you multiple concurrency primitives. Each exists for a reason. This post provides a decision framework for choosing the right one—not by feature comparison, but by workload analysis.&lt;&#x2F;p&gt;</description>
       </item>
       <item>
+          <title>Go Mutex vs WaitGroup: Safety, Coordination, and Ordering</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-mutex-waitgroup-ordering/</link>
+          <guid>https://pallabcodes.github.io/go-mutex-waitgroup-ordering/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-mutex-waitgroup-ordering/">&lt;p&gt;We often confuse &quot;safety&quot; with &quot;ordering&quot;. This post dissects the mechanical difference between &lt;code&gt;sync.Mutex&lt;&#x2F;code&gt; (safety) and &lt;code&gt;sync.WaitGroup&lt;&#x2F;code&gt; (coordination), and why a race-free program can still be nondeterministic.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>The Go Scheduler: G-P-M Model Explained</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>

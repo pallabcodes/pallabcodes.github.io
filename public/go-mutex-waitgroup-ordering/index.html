@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Mutex vs WaitGroup: Safety, Coordination, and Ordering | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="A mechanical deep dive into why Mutexes don't guarantee ordering, how WaitGroups coordinate lifecycles, and the mental model for correct concurrency.">
+
+    <meta property="og:description" content="A mechanical deep dive into why Mutexes don't guarantee ordering, how WaitGroups coordinate lifecycles, and the mental model for correct concurrency.">
+    <meta property="og:title" content="Go Mutex vs WaitGroup: Safety, Coordination, and Ordering | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-mutex-waitgroup-ordering/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="A mechanical deep dive into why Mutexes don't guarantee ordering, how WaitGroups coordinate lifecycles, and the mental model for correct concurrency.">
+    <meta name="twitter:title" content="Go Mutex vs WaitGroup: Safety, Coordination, and Ordering | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-mutex-waitgroup-ordering/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-mutex-waitgroup-ordering/">Go Mutex vs WaitGroup: Safety, Coordination, and Ordering</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/mental-model/">#mental-model</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/mutex/">#mutex</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/waitgroup/">#waitgroup</a></span>
+    
+
+        <div class="post-content">
+            <p>We often confuse "safety" with "ordering". This post dissects the mechanical difference between <code>sync.Mutex</code> (safety) and <code>sync.WaitGroup</code> (coordination), and why a race-free program can still be nondeterministic.</p>
+<span id="continue-reading"></span><h2 id="the-canonical-pattern">The Canonical Pattern</h2>
+<p>Here is the classic "shared state with workers" pattern in Go:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>Container </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">mu       sync</span><span>.</span><span style="color:#b48ead;">Mutex
+</span><span>    </span><span style="color:#bf616a;">counters </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">int
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">c </span><span>*</span><span style="color:#b48ead;">Container</span><span>) </span><span style="color:#8fa1b3;">inc</span><span>(</span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">c</span><span>.</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">c</span><span>.</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span><span>    </span><span style="color:#bf616a;">c</span><span>.</span><span style="color:#bf616a;">counters</span><span>[</span><span style="color:#bf616a;">name</span><span>]++
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">c </span><span>:= </span><span style="color:#bf616a;">Container</span><span>{
+</span><span>        </span><span style="color:#bf616a;">counters</span><span>: </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">int</span><span>{&quot;</span><span style="color:#a3be8c;">a</span><span>&quot;: </span><span style="color:#d08770;">0</span><span>, &quot;</span><span style="color:#a3be8c;">b</span><span>&quot;: </span><span style="color:#d08770;">0</span><span>},
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">wg sync</span><span>.</span><span style="color:#b48ead;">WaitGroup
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">doIncrement </span><span>:= </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>, </span><span style="color:#bf616a;">n </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>        </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#bf616a;">n</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>            </span><span style="color:#bf616a;">c</span><span>.</span><span style="color:#bf616a;">inc</span><span>(</span><span style="color:#bf616a;">name</span><span>)
+</span><span>        }
+</span><span>        </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">3</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">doIncrement</span><span>(&quot;</span><span style="color:#a3be8c;">a</span><span>&quot;, </span><span style="color:#d08770;">10000</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">doIncrement</span><span>(&quot;</span><span style="color:#a3be8c;">a</span><span>&quot;, </span><span style="color:#d08770;">10000</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">doIncrement</span><span>(&quot;</span><span style="color:#a3be8c;">b</span><span>&quot;, </span><span style="color:#d08770;">10000</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span><span>    </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(</span><span style="color:#bf616a;">c</span><span>.</span><span style="color:#bf616a;">counters</span><span>)
+</span><span>}
+</span></code></pre>
+<p>This code is <strong>100% correct and race-free</strong>. It outputs:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>map[a:20000 b:10000]
+</span></code></pre>
+<p>But why exactly? And what does it <em>not</em> leverage?</p>
+<h2 id="the-mental-model-safety-vs-coordination">The Mental Model: Safety vs. Coordination</h2>
+<p>These two primitives solve orthogonal problems.</p>
+<h3 id="1-safety-sync-mutex">1. Safety (<code>sync.Mutex</code>)</h3>
+<p><strong>Problem</strong>: "Can two goroutines touch this data at the same time?"
+<strong>Answer</strong>: No.</p>
+<p>The mutex guarantees <strong>mutual exclusion</strong>. Inside <code>inc()</code>, the lock ensures that the read-modify-write cycle (<code>counters[name]++</code>) is atomic.</p>
+<blockquote>
+<p><strong>Rule</strong>: The mutex protects the <em>critical section</em>, not the goroutine.</p>
+</blockquote>
+<p>It does not lock the goroutine for its entire life. It locks for nanoseconds—just long enough to increment the integer.</p>
+<h3 id="2-coordination-sync-waitgroup">2. Coordination (<code>sync.WaitGroup</code>)</h3>
+<p><strong>Problem</strong>: "Is all concurrent work finished?"
+<strong>Answer</strong>: Wait until yes.</p>
+<p>The <code>WaitGroup</code> manages <strong>goroutine lifecycles</strong>. It answers the question: "How many goroutines are still running?"</p>
+<blockquote>
+<p><strong>Rule</strong>: <code>WaitGroup</code> has NOTHING to do with data safety.</p>
+</blockquote>
+<p>You can use a WaitGroup without a mutex (e.g., parallel independent tasks), and a mutex without a WaitGroup (e.g., a long-running server).</p>
+<h2 id="the-execution-timeline">The Execution Timeline</h2>
+<p>Let's trace the execution mechanically:</p>
+<ol>
+<li><strong>Setup</strong>: <code>main</code> creates <code>Container</code> and sets <code>wg.Add(3)</code>.</li>
+<li><strong>Spawn</strong>: Three goroutines start. <code>main</code> hits <code>wg.Wait()</code> and blocks.</li>
+<li><strong>Interleaving</strong>:
+<ul>
+<li>Goroutine 1 calls <code>c.inc("a")</code>. It acquires the lock.</li>
+<li>Goroutine 2 calls <code>c.inc("a")</code>. It tries to acquire the lock but <strong>blocks</strong> because G1 holds it.</li>
+<li>G1 increments, unlocks.</li>
+<li>G2 unblocks, acquires lock, increments, unlocks.</li>
+<li>G3 runs freely on key "b" (but still contends for the same mutex <code>mu</code>).</li>
+</ul>
+</li>
+<li><strong>Completion</strong>:
+<ul>
+<li>G1 finishes loop, calls <code>wg.Done()</code>. Counter → 2.</li>
+<li>G2 finishes loop, calls <code>wg.Done()</code>. Counter → 1.</li>
+<li>G3 finishes loop, calls <code>wg.Done()</code>. Counter → 0.</li>
+</ul>
+</li>
+<li><strong>Resume</strong>: <code>wg.Wait()</code> unblocks. <code>main</code> prints the result.</li>
+</ol>
+<h2 id="the-ordering-misconception">The Ordering Misconception</h2>
+<p>Here is the critical insight for senior engineers.</p>
+<p><strong>Hypothesis</strong>: Since we spawn G1 ("a"), then G2 ("a"), then G3 ("b"), will "a" always be updated before "b"?</p>
+<p><strong>Reality</strong>: <strong>NO.</strong></p>
+<p>A mutex guarantees <strong>safety</strong>, not <strong>ordering</strong>.</p>
+<p>The Go scheduler is free to run these goroutines in any order. The interleaving is nondeterministic. You might see:</p>
+<ul>
+<li><code>b++</code>, <code>a++</code>, <code>a++</code></li>
+<li><code>a++</code>, <code>b++</code>, <code>a++</code></li>
+</ul>
+<h3 id="mutexes-protect-memory-not-meaning">Mutexes Protect Memory, Not Meaning</h3>
+<p>If your business logic requires that "User A must be processed before User B", a mutex <strong>cannot</strong> enforce that.</p>
+<ul>
+<li><strong>Mutex</strong>: Prevents corruption (technical correctness).</li>
+<li><strong>Ordering</strong>: Enforces sequence (semantic correctness).</li>
+</ul>
+<p>If you need ordering, you need:</p>
+<ol>
+<li><strong>Channels</strong>: A single unbuffered channel enforces run-order (requests processed as received).</li>
+<li><strong>Sequencing</strong>: Run step 1, wait, then run step 2.</li>
+<li><strong>State Owner</strong>: A single goroutine reading from a channel applies updates in the order they arrive.</li>
+</ol>
+<h2 id="when-to-use-this-pattern">When to Use This Pattern</h2>
+<p>Use the Mutex + WaitGroup pattern when:</p>
+<ul>
+<li>State is <strong>small</strong> and shared.</li>
+<li>Operations are <strong>simple</strong> (increments, swaps).</li>
+<li><strong>Performance</strong> matters (mutexes are faster than channels for simple state).</li>
+<li><strong>Order doesn't matter</strong> (commutative operations).</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<table><thead><tr><th>Tool</th><th>Purpose</th><th>Mental Model</th></tr></thead><tbody>
+<tr><td><code>sync.Mutex</code></td><td><strong>Safety</strong></td><td>"One at a time." Protects memory access.</td></tr>
+<tr><td><code>sync.WaitGroup</code></td><td><strong>Coordination</strong></td><td>"Wait for all." Protects program lifecycle.</td></tr>
+<tr><td>Channels</td><td><strong>Flow/Order</strong></td><td>"Pass the baton." Enforces sequence and ownership.</td></tr>
+</tbody></table>
+<p>Don't use a WaitGroup to protect data. Don't use a Mutex to signal completion. And don't expect either to guarantee execution order.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-scheduler-explained/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">The Go Scheduler: G-P-M Model Explained</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-concurrency-toolbox/">
+                                <span class="button__text">The Go Concurrency Toolbox: When to Use What</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
