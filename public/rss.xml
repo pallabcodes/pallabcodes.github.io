@@ -57,6 +57,14 @@
           <description xml:base="https://pallabcodes.github.io/go-templates-part-4/">&lt;p&gt;At a certain scale, templates become infrastructure. They need versioning, observability, rollback, and operational runbooks. This post covers how to treat templates as first-class production assets.&lt;&#x2F;p&gt;</description>
       </item>
       <item>
+          <title>Production Concurrency: Backpressure, Pipelines &amp; Real Failures</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/production-concurrency-pipelines/</link>
+          <guid>https://pallabcodes.github.io/production-concurrency-pipelines/</guid>
+          <description xml:base="https://pallabcodes.github.io/production-concurrency-pipelines/">&lt;p&gt;This post goes beyond patterns into production system design: how backpressure actually works, why Go and Rust handle cancellation differently, and a complete walkthrough of designing a distributed pipeline that won&#x27;t fail at 3am.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>Share Memory by Communicating Part 1: The Pattern</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>

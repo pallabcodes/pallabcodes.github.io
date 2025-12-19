@@ -41,6 +41,10 @@
         <loc>https://pallabcodes.github.io/page/2/</loc>
     </url>
     <url>
+        <loc>https://pallabcodes.github.io/production-concurrency-pipelines/</loc>
+        <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
         <loc>https://pallabcodes.github.io/resume/</loc>
     </url>
     <url>
@@ -61,6 +65,9 @@
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/backpressure/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/concurrency/</loc>
@@ -97,6 +104,9 @@
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/security/</loc>
+    </url>
+    <url>
+        <loc>https://pallabcodes.github.io/tags/system-design/</loc>
     </url>
     <url>
         <loc>https://pallabcodes.github.io/tags/systems/</loc>

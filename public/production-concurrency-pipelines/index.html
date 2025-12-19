@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Production Concurrency: Backpressure, Pipelines &amp; Real Failures | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Formal backpressure reasoning, Go vs Rust async comparison, and designing a complete distributed pipeline from scratch">
+
+    <meta property="og:description" content="Formal backpressure reasoning, Go vs Rust async comparison, and designing a complete distributed pipeline from scratch">
+    <meta property="og:title" content="Production Concurrency: Backpressure, Pipelines & Real Failures | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/production-concurrency-pipelines/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Formal backpressure reasoning, Go vs Rust async comparison, and designing a complete distributed pipeline from scratch">
+    <meta name="twitter:title" content="Production Concurrency: Backpressure, Pipelines & Real Failures | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/production-concurrency-pipelines/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/production-concurrency-pipelines/">Production Concurrency: Backpressure, Pipelines &amp; Real Failures</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/backpressure/">#backpressure</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/system-design/">#system-design</a></span>
+    
+
+        <div class="post-content">
+            <p>This post goes beyond patterns into production system design: how backpressure actually works, why Go and Rust handle cancellation differently, and a complete walkthrough of designing a distributed pipeline that won't fail at 3am.</p>
+<span id="continue-reading"></span><h2 id="a-real-goroutine-leak-postmortem">A Real Goroutine Leak Postmortem</h2>
+<p>Let's start with something that actually happened.</p>
+<h3 id="the-system">The System</h3>
+<p>A Go HTTP service handling ingestion requests. Each request validates input, sends work to a background processor, waits for the result.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Result</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">workQueue </span><span>&lt;- </span><span style="color:#bf616a;">Job</span><span>{
+</span><span>        </span><span style="color:#bf616a;">Data</span><span>: </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Body</span><span>,
+</span><span>        </span><span style="color:#bf616a;">Resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>,
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">result </span><span>:= &lt;-</span><span style="color:#bf616a;">resp
+</span><span>    </span><span style="color:#bf616a;">writeResponse</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">result</span><span>)
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">job </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">workQueue </span><span>{
+</span><span>        </span><span style="color:#bf616a;">res </span><span>:= </span><span style="color:#bf616a;">process</span><span>(</span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Data</span><span>)
+</span><span>        </span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Resp </span><span>&lt;- </span><span style="color:#bf616a;">res
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Looks clean. No races. No mutexes. Tests pass. Code review approved.</p>
+<h3 id="what-happened-in-production">What Happened in Production</h3>
+<p>Over 3-4 hours:</p>
+<ul>
+<li>P99 latency climbed slowly</li>
+<li>Memory usage grew steadily</li>
+<li>Goroutine count: 5k → 300k</li>
+<li>No panics, no errors</li>
+<li>CPU at ~30%</li>
+</ul>
+<p>Eventually the load balancer marked the instance unhealthy. Kubernetes restarted the pod. Repeat.</p>
+<h3 id="root-cause-timeline">Root Cause Timeline</h3>
+<p><strong>T1 — Client disconnects early</strong></p>
+<p>A mobile client times out. HTTP connection closes. The <code>handler</code> goroutine exits <strong>before reading from <code>resp</code></strong>.</p>
+<p><strong>T2 — Worker finishes processing</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Resp </span><span>&lt;- </span><span style="color:#bf616a;">res  </span><span style="color:#65737e;">// No receiver exists
+</span></code></pre>
+<p>The channel is unbuffered. No receiver exists. Worker goroutine <strong>blocks forever</strong>.</p>
+<p><strong>T3 — Cascade failure</strong></p>
+<ul>
+<li>That worker never processes another job</li>
+<li>Work queue fills up</li>
+<li>New workers spawned (auto-scale)</li>
+<li>More workers block on abandoned channels</li>
+<li>Goroutine count explodes</li>
+</ul>
+<h3 id="why-go-didn-t-save-you">Why Go Didn't Save You</h3>
+<ul>
+<li>Runtime sees runnable goroutines → fine</li>
+<li>Some goroutines blocked → fine</li>
+<li>No deadlock (not ALL blocked) → no panic</li>
+<li>Memory pressure grows slowly → no OOM yet</li>
+</ul>
+<p>This is not a runtime bug. This is <strong>missing lifecycle design</strong>.</p>
+<h3 id="the-missing-guarantees">The Missing Guarantees</h3>
+<table><thead><tr><th>Missing</th><th>Consequence</th></tr></thead><tbody>
+<tr><td>Request cancellation</td><td>Worker didn't know client left</td></tr>
+<tr><td>Response buffering</td><td>Worker blocked on send</td></tr>
+<tr><td>Ownership</td><td>No one responsible for goroutine exit</td></tr>
+<tr><td>Backpressure</td><td>Queue grew unbounded</td></tr>
+</tbody></table>
+<h3 id="the-minimal-fix-symptom-only">The Minimal Fix (Symptom Only)</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Result</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span></code></pre>
+<p>This stops the worker from blocking—but leaks work silently. The result goes nowhere.</p>
+<h3 id="the-correct-fix">The Correct Fix</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">handler</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">ctx </span><span>:= </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Context</span><span>()  </span><span style="color:#65737e;">// Request-scoped
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Result</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">workQueue </span><span>&lt;- </span><span style="color:#bf616a;">Job</span><span>{</span><span style="color:#bf616a;">Data</span><span>: </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Body</span><span>, </span><span style="color:#bf616a;">Resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>, </span><span style="color:#bf616a;">Ctx</span><span>: </span><span style="color:#bf616a;">ctx</span><span>}:
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>        </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Error</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">timeout</span><span>&quot;, </span><span style="color:#d08770;">504</span><span>)
+</span><span>        </span><span style="color:#b48ead;">return
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">result </span><span>:= &lt;-</span><span style="color:#bf616a;">resp</span><span>:
+</span><span>        </span><span style="color:#bf616a;">writeResponse</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">result</span><span>)
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>        </span><span style="color:#b48ead;">return  </span><span style="color:#65737e;">// Client left, we abandon
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">job </span><span>:= &lt;-</span><span style="color:#bf616a;">workQueue</span><span>:
+</span><span>            </span><span style="color:#bf616a;">res </span><span>:= </span><span style="color:#bf616a;">process</span><span>(</span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Data</span><span>)
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Resp </span><span>&lt;- </span><span style="color:#bf616a;">res</span><span>:
+</span><span>            </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>                </span><span style="color:#65737e;">// Client abandoned, drop result
+</span><span>            }
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Now every blocking point has an escape. No permanent blocks possible.</p>
+<h2 id="formal-reasoning-about-backpressure">Formal Reasoning About Backpressure</h2>
+<p>Most systems fail silently because engineers don't think about backpressure formally.</p>
+<h3 id="definition">Definition</h3>
+<blockquote>
+<p><strong>Backpressure</strong> is the ability of a system to <strong>refuse work</strong> when downstream capacity is saturated.</p>
+</blockquote>
+<p>If your system cannot say no, it will die.</p>
+<h3 id="the-three-strategies">The Three Strategies</h3>
+<p><strong>1. Blocking</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#bf616a;">job  </span><span style="color:#65737e;">// Blocks until receiver ready
+</span></code></pre>
+<p>Pros: Simple, natural flow control.
+Cons: Ties caller lifecycle, dangerous in request paths.</p>
+<p><strong>2. Bounded Queues with Rejection</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#bf616a;">job</span><span>:
+</span><span>    </span><span style="color:#65737e;">// Accepted
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">After</span><span>(</span><span style="color:#d08770;">100 </span><span>* </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>):
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">ErrOverloaded
+</span><span>}
+</span></code></pre>
+<p>Or immediate rejection:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#bf616a;">job</span><span>:
+</span><span style="color:#b48ead;">default</span><span>:
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">ErrQueueFull
+</span><span>}
+</span></code></pre>
+<p>Pros: Explicit overload signal, protects system.
+Cons: Clients must handle rejection.</p>
+<p><strong>3. Load Shedding</strong></p>
+<p>Drop low-priority work, degrade functionality, preserve core correctness.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">shed</span><span>(</span><span style="color:#bf616a;">job </span><span style="color:#b48ead;">Job</span><span>) </span><span style="color:#b48ead;">bool </span><span>{
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">queueLen </span><span>&gt; </span><span style="color:#bf616a;">threshold </span><span>&amp;&amp; </span><span style="color:#bf616a;">job</span><span>.</span><span style="color:#bf616a;">Priority </span><span>&lt; </span><span style="color:#bf616a;">HIGH </span><span>{
+</span><span>        </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">DroppedJobs</span><span>.</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">true  </span><span style="color:#65737e;">// Shed this job
+</span><span>    }
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">false
+</span><span>}
+</span></code></pre>
+<p>This is how production systems survive traffic spikes.</p>
+<h3 id="the-backpressure-checklist">The Backpressure Checklist</h3>
+<p>For <strong>every queue</strong> in your system, answer:</p>
+<ol>
+<li>Is it bounded?</li>
+<li>Who blocks when full?</li>
+<li>Is that acceptable?</li>
+<li>What is the failure mode?</li>
+</ol>
+<p>If you cannot answer these → you have a bug waiting to happen.</p>
+<h3 id="why-buffered-channels-are-dangerous">Why Buffered Channels Are Dangerous</h3>
+<p>Buffered channels:</p>
+<ul>
+<li>Delay backpressure signals</li>
+<li>Hide overload</li>
+<li>Move failure forward in time</li>
+</ul>
+<p>They are <strong>latency buffers</strong>, not safety mechanisms.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ch </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Job</span><span>, </span><span style="color:#d08770;">10000</span><span>)  </span><span style="color:#65737e;">// &quot;Should be enough&quot;
+</span></code></pre>
+<p>This just means you'll run out of memory 10000 jobs later.</p>
+<h3 id="real-example-rate-limiter-with-backpressure">Real Example: Rate Limiter with Backpressure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>RateLimiter </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">tokens </span><span style="color:#b48ead;">chan struct</span><span>{}
+</span><span>    </span><span style="color:#bf616a;">refill </span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#b48ead;">Ticker
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">NewRateLimiter</span><span>(</span><span style="color:#bf616a;">rate </span><span style="color:#b48ead;">int</span><span>, </span><span style="color:#bf616a;">burst </span><span style="color:#b48ead;">int</span><span>) *</span><span style="color:#b48ead;">RateLimiter </span><span>{
+</span><span>    </span><span style="color:#bf616a;">rl </span><span>:= &amp;</span><span style="color:#bf616a;">RateLimiter</span><span>{
+</span><span>        </span><span style="color:#bf616a;">tokens</span><span>: </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan struct</span><span>{}, </span><span style="color:#bf616a;">burst</span><span>),
+</span><span>        </span><span style="color:#bf616a;">refill</span><span>: </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">NewTicker</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second </span><span>/ </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Duration</span><span>(</span><span style="color:#bf616a;">rate</span><span>)),
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Pre-fill tokens
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#bf616a;">burst</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>        </span><span style="color:#bf616a;">rl</span><span>.</span><span style="color:#bf616a;">tokens </span><span>&lt;- </span><span style="color:#b48ead;">struct</span><span>{}{}
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Refill goroutine
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">for range </span><span style="color:#bf616a;">rl</span><span>.</span><span style="color:#bf616a;">refill</span><span>.</span><span style="color:#bf616a;">C </span><span>{
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">rl</span><span>.</span><span style="color:#bf616a;">tokens </span><span>&lt;- </span><span style="color:#b48ead;">struct</span><span>{}{}:
+</span><span>            </span><span style="color:#b48ead;">default</span><span>:
+</span><span>                </span><span style="color:#65737e;">// At capacity, don&#39;t overflow
+</span><span>            }
+</span><span>        }
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">rl
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">rl </span><span>*</span><span style="color:#b48ead;">RateLimiter</span><span>) </span><span style="color:#8fa1b3;">Allow</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">rl</span><span>.</span><span style="color:#bf616a;">tokens</span><span>:
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil  </span><span style="color:#65737e;">// Allowed
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Err</span><span>()  </span><span style="color:#65737e;">// Caller gave up
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>This is backpressure: callers block or timeout when rate exceeded.</p>
+<h2 id="go-vs-rust-async-cancellation">Go vs Rust Async Cancellation</h2>
+<p>This matters for architecture decisions.</p>
+<h3 id="go-s-model-external-cooperative">Go's Model: External, Cooperative</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return  </span><span style="color:#65737e;">// Explicit check
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">job </span><span>:= &lt;-</span><span style="color:#bf616a;">jobs</span><span>:
+</span><span>            </span><span style="color:#bf616a;">process</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">job</span><span>)
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Cancellation is:</p>
+<ul>
+<li><strong>External</strong> — passed via context</li>
+<li><strong>Cooperative</strong> — goroutine must check</li>
+<li><strong>Advisory</strong> — can be ignored</li>
+</ul>
+<h3 id="rust-s-model-structural-implicit">Rust's Model: Structural, Implicit</h3>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">let</span><span> task = tokio::spawn(async {
+</span><span>    </span><span style="color:#b48ead;">loop </span><span>{
+</span><span>        </span><span style="color:#96b5b4;">do_work</span><span>().await;
+</span><span>    }
+</span><span>});
+</span><span>
+</span><span style="color:#65737e;">// Cancellation = dropping the handle
+</span><span style="color:#96b5b4;">drop</span><span>(task);
+</span><span style="color:#65737e;">// or
+</span><span>task.</span><span style="color:#96b5b4;">abort</span><span>();
+</span></code></pre>
+<p>When a future is dropped, it's cancelled. The compiler enforces lifetimes.</p>
+<h3 id="comparison">Comparison</h3>
+<table><thead><tr><th>Aspect</th><th>Go</th><th>Rust</th></tr></thead><tbody>
+<tr><td>Cancellation</td><td>Explicit checks</td><td>Implicit via drop</td></tr>
+<tr><td>Enforcement</td><td>Runtime discipline</td><td>Type system</td></tr>
+<tr><td>Ergonomics</td><td>Easier</td><td>Harder</td></tr>
+<tr><td>Guarantees</td><td>Weaker</td><td>Stronger</td></tr>
+<tr><td>Blocking code</td><td>Natural</td><td>Dangerous</td></tr>
+<tr><td>Learning curve</td><td>Lower</td><td>Higher</td></tr>
+</tbody></table>
+<h3 id="why-go-still-dominates-infrastructure">Why Go Still Dominates Infrastructure</h3>
+<ul>
+<li>Easier operational debugging</li>
+<li>Predictable performance model</li>
+<li>Better blocking syscall story</li>
+<li>Faster iteration cycles</li>
+<li>Simpler mental model for most cases</li>
+</ul>
+<p>But you must <strong>design lifetimes yourself</strong>. Rust's compiler does it for you; Go trusts you to do it right.</p>
+<h3 id="practical-implication">Practical Implication</h3>
+<p>In Go, you need discipline:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Every goroutine you spawn
+</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>    </span><span style="color:#bf616a;">worker</span><span>(</span><span style="color:#bf616a;">ctx</span><span>)
+</span><span>}()
+</span><span>
+</span><span style="color:#65737e;">// At shutdown
+</span><span style="color:#bf616a;">cancel</span><span>()
+</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span></code></pre>
+<p>In Rust, the type system prevents you from forgetting this. In Go, you can forget, and your service will leak goroutines.</p>
+<h2 id="designing-a-complete-pipeline">Designing a Complete Pipeline</h2>
+<p>Let's design a real system end-to-end.</p>
+<h3 id="the-problem">The Problem</h3>
+<p>A distributed ingestion pipeline that:</p>
+<ul>
+<li>Ingests CSV/logs/events via HTTP</li>
+<li>Validates records</li>
+<li>Transforms data</li>
+<li>Persists to storage</li>
+<li>Exposes metrics</li>
+</ul>
+<p>Constraints:</p>
+<ul>
+<li>Bounded memory (no unbounded queues)</li>
+<li>Graceful shutdown (no dropped work)</li>
+<li>Cancellation-safe (no leaked goroutines)</li>
+<li>Restartable workers (fault tolerance)</li>
+<li>Observable (metrics, tracing)</li>
+</ul>
+<h3 id="architecture">Architecture</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>                    ┌─────────────┐
+</span><span>    HTTP ──────────▶│  Ingestion  │
+</span><span>                    │   Handler   │
+</span><span>                    └──────┬──────┘
+</span><span>                           │
+</span><span>                    ┌──────▼──────┐
+</span><span>                    │  Validate   │◀── Worker Pool (N)
+</span><span>                    │   Queue     │
+</span><span>                    └──────┬──────┘
+</span><span>                           │
+</span><span>                    ┌──────▼──────┐
+</span><span>                    │  Transform  │◀── Worker Pool (M)
+</span><span>                    │   Queue     │
+</span><span>                    └──────┬──────┘
+</span><span>                           │
+</span><span>                    ┌──────▼──────┐
+</span><span>                    │   Persist   │◀── Worker Pool (K)
+</span><span>                    │   Queue     │
+</span><span>                    └─────────────┘
+</span></code></pre>
+<h3 id="supervision-tree">Supervision Tree</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">NotifyContext</span><span>(
+</span><span>        </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(),
+</span><span>        </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>,
+</span><span>        </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Interrupt</span><span>,
+</span><span>    )
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">wg sync</span><span>.</span><span style="color:#b48ead;">WaitGroup
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Bounded queues
+</span><span>    </span><span style="color:#bf616a;">validateQ </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Record</span><span>, </span><span style="color:#d08770;">1000</span><span>)
+</span><span>    </span><span style="color:#bf616a;">transformQ </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Record</span><span>, </span><span style="color:#d08770;">1000</span><span>)
+</span><span>    </span><span style="color:#bf616a;">persistQ </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Record</span><span>, </span><span style="color:#d08770;">1000</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start worker pools
+</span><span>    </span><span style="color:#bf616a;">startPool</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, &amp;</span><span style="color:#bf616a;">wg</span><span>, &quot;</span><span style="color:#a3be8c;">validate</span><span>&quot;, </span><span style="color:#d08770;">10</span><span>, </span><span style="color:#bf616a;">validateQ</span><span>, </span><span style="color:#bf616a;">transformQ</span><span>, </span><span style="color:#bf616a;">validate</span><span>)
+</span><span>    </span><span style="color:#bf616a;">startPool</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, &amp;</span><span style="color:#bf616a;">wg</span><span>, &quot;</span><span style="color:#a3be8c;">transform</span><span>&quot;, </span><span style="color:#d08770;">5</span><span>, </span><span style="color:#bf616a;">transformQ</span><span>, </span><span style="color:#bf616a;">persistQ</span><span>, </span><span style="color:#bf616a;">transform</span><span>)
+</span><span>    </span><span style="color:#bf616a;">startPool</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, &amp;</span><span style="color:#bf616a;">wg</span><span>, &quot;</span><span style="color:#a3be8c;">persist</span><span>&quot;, </span><span style="color:#d08770;">3</span><span>, </span><span style="color:#bf616a;">persistQ</span><span>, </span><span style="color:#d08770;">nil</span><span>, </span><span style="color:#bf616a;">persist</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start HTTP server
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>        </span><span style="color:#bf616a;">runHTTPServer</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">validateQ</span><span>)
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Wait for shutdown signal
+</span><span>    &lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">Shutting down...</span><span>&quot;)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Wait for all workers to finish
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">Shutdown complete</span><span>&quot;)
+</span><span>}
+</span></code></pre>
+<h3 id="worker-pool-with-restart">Worker Pool with Restart</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">startPool</span><span>(
+</span><span>    </span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>,
+</span><span>    </span><span style="color:#bf616a;">wg </span><span>*</span><span style="color:#bf616a;">sync</span><span>.</span><span style="color:#b48ead;">WaitGroup</span><span>,
+</span><span>    </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>,
+</span><span>    </span><span style="color:#bf616a;">count </span><span style="color:#b48ead;">int</span><span>,
+</span><span>    </span><span style="color:#bf616a;">in </span><span>&lt;-</span><span style="color:#b48ead;">chan Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">out </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">fn </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#b48ead;">Record</span><span>) (</span><span style="color:#b48ead;">Record</span><span>, </span><span style="color:#b48ead;">error</span><span>),
+</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#bf616a;">count</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>        </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>        </span><span style="color:#b48ead;">go func</span><span>(</span><span style="color:#bf616a;">id </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>            </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>            </span><span style="color:#bf616a;">runWorkerWithRestart</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">id</span><span>, </span><span style="color:#bf616a;">in</span><span>, </span><span style="color:#bf616a;">out</span><span>, </span><span style="color:#bf616a;">fn</span><span>)
+</span><span>        }(</span><span style="color:#bf616a;">i</span><span>)
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">runWorkerWithRestart</span><span>(
+</span><span>    </span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>,
+</span><span>    </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>,
+</span><span>    </span><span style="color:#bf616a;">id </span><span style="color:#b48ead;">int</span><span>,
+</span><span>    </span><span style="color:#bf616a;">in </span><span>&lt;-</span><span style="color:#b48ead;">chan Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">out </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">fn </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#b48ead;">Record</span><span>) (</span><span style="color:#b48ead;">Record</span><span>, </span><span style="color:#b48ead;">error</span><span>),
+</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">runWorker</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">id</span><span>, </span><span style="color:#bf616a;">in</span><span>, </span><span style="color:#bf616a;">out</span><span>, </span><span style="color:#bf616a;">fn</span><span>)
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>== </span><span style="color:#d08770;">nil </span><span>|| </span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Err</span><span>() != </span><span style="color:#d08770;">nil </span><span>{
+</span><span>            </span><span style="color:#b48ead;">return  </span><span style="color:#65737e;">// Clean exit or shutdown
+</span><span>        }
+</span><span>
+</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Printf</span><span>(&quot;</span><span style="color:#a3be8c;">Worker </span><span style="color:#d08770;">%s</span><span style="color:#a3be8c;">-</span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;"> crashed, restarting: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">name</span><span>, </span><span style="color:#bf616a;">id</span><span>, </span><span style="color:#bf616a;">err</span><span>)
+</span><span>        </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">WorkerRestarts</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>).</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>
+</span><span>        </span><span style="color:#65737e;">// Backoff before restart
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">After</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>):
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">runWorker</span><span>(
+</span><span>    </span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>,
+</span><span>    </span><span style="color:#bf616a;">name </span><span style="color:#b48ead;">string</span><span>,
+</span><span>    </span><span style="color:#bf616a;">id </span><span style="color:#b48ead;">int</span><span>,
+</span><span>    </span><span style="color:#bf616a;">in </span><span>&lt;-</span><span style="color:#b48ead;">chan Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">out </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">Record</span><span>,
+</span><span>    </span><span style="color:#bf616a;">fn </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#b48ead;">Record</span><span>) (</span><span style="color:#b48ead;">Record</span><span>, </span><span style="color:#b48ead;">error</span><span>),
+</span><span>) (</span><span style="color:#bf616a;">err </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">defer func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">r </span><span>:= </span><span style="color:#96b5b4;">recover</span><span>(); </span><span style="color:#bf616a;">r </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>            </span><span style="color:#bf616a;">err </span><span>= </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Errorf</span><span>(&quot;</span><span style="color:#a3be8c;">panic: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">r</span><span>)
+</span><span>        }
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil
+</span><span>
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">record</span><span>, </span><span style="color:#bf616a;">ok </span><span>:= &lt;-</span><span style="color:#bf616a;">in</span><span>:
+</span><span>            </span><span style="color:#b48ead;">if </span><span>!</span><span style="color:#bf616a;">ok </span><span>{
+</span><span>                </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil  </span><span style="color:#65737e;">// Channel closed
+</span><span>            }
+</span><span>
+</span><span>            </span><span style="color:#bf616a;">result</span><span>, </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">fn</span><span>(</span><span style="color:#bf616a;">record</span><span>)
+</span><span>            </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>                </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">ProcessingErrors</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>).</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>                </span><span style="color:#b48ead;">continue  </span><span style="color:#65737e;">// Skip bad records
+</span><span>            }
+</span><span>
+</span><span>            </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">out </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>                </span><span style="color:#b48ead;">select </span><span>{
+</span><span>                </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">out </span><span>&lt;- </span><span style="color:#bf616a;">result</span><span>:
+</span><span>                </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>                    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">nil
+</span><span>                }
+</span><span>            }
+</span><span>
+</span><span>            </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">RecordsProcessed</span><span>.</span><span style="color:#bf616a;">WithLabelValues</span><span>(</span><span style="color:#bf616a;">name</span><span>).</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="http-handler-with-backpressure">HTTP Handler with Backpressure</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">runHTTPServer</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">validateQ </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">Record</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">mux </span><span>:= </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">NewServeMux</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">mux</span><span>.</span><span style="color:#bf616a;">HandleFunc</span><span>(&quot;</span><span style="color:#a3be8c;">/ingest</span><span>&quot;, </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">w http</span><span>.</span><span style="color:#b48ead;">ResponseWriter</span><span>, </span><span style="color:#bf616a;">r </span><span>*</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#b48ead;">Request</span><span>) {
+</span><span>        </span><span style="color:#bf616a;">record</span><span>, </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">parseRecord</span><span>(</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Body</span><span>)
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>            </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Error</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">invalid record</span><span>&quot;, </span><span style="color:#d08770;">400</span><span>)
+</span><span>            </span><span style="color:#b48ead;">return
+</span><span>        }
+</span><span>
+</span><span>        </span><span style="color:#65737e;">// Backpressure: reject if queue full
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">validateQ </span><span>&lt;- </span><span style="color:#bf616a;">record</span><span>:
+</span><span>            </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">WriteHeader</span><span>(</span><span style="color:#d08770;">202</span><span>)  </span><span style="color:#65737e;">// Accepted
+</span><span>            </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">RecordsAccepted</span><span>.</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">After</span><span>(</span><span style="color:#d08770;">100 </span><span>* </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>):
+</span><span>            </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Error</span><span>(</span><span style="color:#bf616a;">w</span><span>, &quot;</span><span style="color:#a3be8c;">overloaded</span><span>&quot;, </span><span style="color:#d08770;">503</span><span>)
+</span><span>            </span><span style="color:#bf616a;">metrics</span><span>.</span><span style="color:#bf616a;">RecordsRejected</span><span>.</span><span style="color:#bf616a;">Inc</span><span>()
+</span><span>
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">Context</span><span>().</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return  </span><span style="color:#65737e;">// Client gave up
+</span><span>        }
+</span><span>    })
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">server </span><span>:= &amp;</span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">Server</span><span>{
+</span><span>        </span><span style="color:#bf616a;">Addr</span><span>:    &quot;</span><span style="color:#a3be8c;">:8080</span><span>&quot;,
+</span><span>        </span><span style="color:#bf616a;">Handler</span><span>: </span><span style="color:#bf616a;">mux</span><span>,
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        &lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>        </span><span style="color:#bf616a;">shutdownCtx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithTimeout</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(), </span><span style="color:#d08770;">30</span><span>*</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
+</span><span>        </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>        </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">Shutdown</span><span>(</span><span style="color:#bf616a;">shutdownCtx</span><span>)
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">server</span><span>.</span><span style="color:#bf616a;">ListenAndServe</span><span>(); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#bf616a;">http</span><span>.</span><span style="color:#bf616a;">ErrServerClosed </span><span>{
+</span><span>        </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Printf</span><span>(&quot;</span><span style="color:#a3be8c;">HTTP server error: </span><span style="color:#d08770;">%v</span><span>&quot;, </span><span style="color:#bf616a;">err</span><span>)
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="failure-scenarios-addressed">Failure Scenarios Addressed</h3>
+<table><thead><tr><th>Scenario</th><th>How It's Handled</th></tr></thead><tbody>
+<tr><td>Worker panic</td><td>Recover + restart with backoff</td></tr>
+<tr><td>Queue full</td><td>HTTP 503 + client retry</td></tr>
+<tr><td>Slow downstream</td><td>Backpressure propagates up</td></tr>
+<tr><td>SIGTERM</td><td>Graceful drain + wait</td></tr>
+<tr><td>Client disconnect</td><td>Context cancellation</td></tr>
+<tr><td>Memory pressure</td><td>Bounded queues cap growth</td></tr>
+</tbody></table>
+<h3 id="metrics-to-monitor">Metrics to Monitor</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span>(
+</span><span>    </span><span style="color:#bf616a;">RecordsAccepted </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewCounter</span><span>(...)
+</span><span>    </span><span style="color:#bf616a;">RecordsRejected </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewCounter</span><span>(...)
+</span><span>    </span><span style="color:#bf616a;">RecordsProcessed </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewCounterVec</span><span>(..., []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">stage</span><span>&quot;})
+</span><span>    </span><span style="color:#bf616a;">ProcessingErrors </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewCounterVec</span><span>(..., []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">stage</span><span>&quot;})
+</span><span>    </span><span style="color:#bf616a;">WorkerRestarts </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewCounterVec</span><span>(..., []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">stage</span><span>&quot;})
+</span><span>    </span><span style="color:#bf616a;">QueueDepth </span><span>= </span><span style="color:#bf616a;">prometheus</span><span>.</span><span style="color:#bf616a;">NewGaugeVec</span><span>(..., []</span><span style="color:#b48ead;">string</span><span>{&quot;</span><span style="color:#a3be8c;">stage</span><span>&quot;})
+</span><span>)
+</span></code></pre>
+<p>Alert on:</p>
+<ul>
+<li><code>RecordsRejected</code> rate &gt; threshold (backpressure hitting clients)</li>
+<li><code>WorkerRestarts</code> rate &gt; threshold (instability)</li>
+<li><code>QueueDepth</code> near capacity (approaching backpressure)</li>
+</ul>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ol>
+<li><strong>Every goroutine needs an owner</strong> — someone responsible for its lifecycle</li>
+<li><strong>Every blocking point needs an escape</strong> — context cancellation</li>
+<li><strong>Every queue needs bounds</strong> — unbounded = eventual OOM</li>
+<li><strong>Backpressure is not optional</strong> — design it explicitly</li>
+<li><strong>Go trusts you</strong> — Rust's compiler catches mistakes you must catch yourself</li>
+<li><strong>Test failure modes</strong> — not just happy paths</li>
+</ol>
+<p>This is the difference between software that works in development and software that survives production.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-1/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Share Memory by Communicating Part 1: The Pattern</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-templates-part-4/">
+                                <span class="button__text">Go Templates Part 4: Operating Templates at Scale</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
