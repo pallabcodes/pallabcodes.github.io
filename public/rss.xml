@@ -41,6 +41,14 @@
           <description xml:base="https://pallabcodes.github.io/go-concurrency-toolbox/">&lt;p&gt;Go gives you multiple concurrency primitives. Each exists for a reason. This post provides a decision framework for choosing the right one—not by feature comparison, but by workload analysis.&lt;&#x2F;p&gt;</description>
       </item>
       <item>
+          <title>The Mechanics of Go Execution: A Timeline View</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-execution-mechanics/</link>
+          <guid>https://pallabcodes.github.io/go-execution-mechanics/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-execution-mechanics/">&lt;p&gt;One of the hardest mental shifts in Go is understanding that &lt;code&gt;go func()&lt;&#x2F;code&gt; arranges for code to run &lt;em&gt;later&lt;&#x2F;em&gt;, not &lt;em&gt;now&lt;&#x2F;em&gt;. This post breaks down the execution timeline of a concurrent loop to kill the &quot;sequential intuition&quot; once and for all.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>Go Mutex vs WaitGroup: Safety, Coordination, and Ordering</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>

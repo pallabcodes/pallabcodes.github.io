@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>The Mechanics of Go Execution: A Timeline View | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Visualizing exactly how the main loop and worker goroutines interleave (and don't interleave) in time.">
+
+    <meta property="og:description" content="Visualizing exactly how the main loop and worker goroutines interleave (and don't interleave) in time.">
+    <meta property="og:title" content="The Mechanics of Go Execution: A Timeline View | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-execution-mechanics/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Visualizing exactly how the main loop and worker goroutines interleave (and don't interleave) in time.">
+    <meta name="twitter:title" content="The Mechanics of Go Execution: A Timeline View | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-execution-mechanics/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-execution-mechanics/">The Mechanics of Go Execution: A Timeline View</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go-routines/">#go-routines</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/mental-model/">#mental-model</a></span>
+    
+
+        <div class="post-content">
+            <p>One of the hardest mental shifts in Go is understanding that <code>go func()</code> arranges for code to run <em>later</em>, not <em>now</em>. This post breaks down the execution timeline of a concurrent loop to kill the "sequential intuition" once and for all.</p>
+<span id="continue-reading"></span><h2 id="the-confusion">The Confusion</h2>
+<p>Here is the code that confuses almost everyone at first glance:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Launch 50 workers
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">50</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#65737e;">// ... heavy work ...
+</span><span>        </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>    }()
+</span><span>}
+</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span></code></pre>
+<p>The common (incorrect) intuition is that the loop waits for the goroutine to start, or that <code>wg.Done()</code> somehow happens "inside" the loop iteration.</p>
+<p>Let's visualize reality.</p>
+<h2 id="two-separate-timelines">Two Separate Timelines</h2>
+<p>We must separate the <strong>Main Goroutine</strong> from the <strong>Worker Goroutines</strong>.</p>
+<h3 id="timeline-t0-start">Timeline: T0 (Start)</h3>
+<ul>
+<li><strong>Main</strong>: Enters <code>main()</code>.</li>
+<li><strong>Workers</strong>: None exist.</li>
+</ul>
+<h3 id="timeline-t1-loop-start">Timeline: T1 (Loop Start)</h3>
+<ul>
+<li><strong>Main</strong>: <code>i = 0</code>.</li>
+<li><strong>Main</strong>: <code>wg.Add(1)</code>. Counter is now 1.</li>
+<li><strong>Main</strong>: <code>go func()</code>.
+<ul>
+<li><strong>Action</strong>: The runtime creates a goroutine object.</li>
+<li><strong>Status</strong>: Queued. It has <strong>NOT</strong> started executing user code yet.</li>
+</ul>
+</li>
+<li><strong>Main</strong>: Loop continues immediately.</li>
+</ul>
+<h3 id="timeline-t2-next-iteration">Timeline: T2 (Next Iteration)</h3>
+<ul>
+<li>
+<p><strong>Main</strong>: <code>i = 1</code>.</p>
+</li>
+<li>
+<p><strong>Main</strong>: <code>wg.Add(1)</code>. Counter is now 2.</p>
+</li>
+<li>
+<p><strong>Main</strong>: <code>go func()</code>.</p>
+<ul>
+<li><strong>Action</strong>: Another goroutine queued.</li>
+</ul>
+</li>
+<li>
+<p><strong>Main</strong>: Loop continues.</p>
+</li>
+<li>
+<p><strong>Worker #1</strong>: <em>Maybe</em> starts running now? <em>Maybe</em> later? We don't know. The scheduler decides.</p>
+</li>
+</ul>
+<h3 id="timeline-t3-loop-finishes">Timeline: T3 (Loop Finishes)</h3>
+<ul>
+<li><strong>Main</strong>: <code>i</code> reaches 50. Loop exits.</li>
+<li><strong>Main</strong>: Reaches <code>wg.Wait()</code>.</li>
+<li><strong>Main</strong>: <strong>BLOCKS</strong>.</li>
+</ul>
+<p>At this exact moment:</p>
+<ul>
+<li>50 Goroutines have been <em>created</em>.</li>
+<li>Any number of them (0 to 50) might have <em>started</em> running.</li>
+<li>Any number of them might have <em>finished</em>.</li>
+<li><code>wg.Wait()</code> effectively says: "Stop everything here until the counter is 0."</li>
+</ul>
+<h2 id="the-worker-timeline">The Worker Timeline</h2>
+<p>Let's zoom into a single worker. Its lifecycle is entirely independent of <code>main</code> once spawned.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">go func</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">c </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">c </span><span>&lt; </span><span style="color:#d08770;">1000</span><span>; </span><span style="color:#bf616a;">c</span><span>++ {
+</span><span>        </span><span style="color:#bf616a;">ops</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>}()
+</span></code></pre>
+<ol>
+<li><strong>Spawn</strong>: Created by main.</li>
+<li><strong>Schedule</strong>: Runtime picks it up (could be T1, T5, or T100).</li>
+<li><strong>Execute</strong>: Runs its <code>for</code> loop sequentially. 1, 2, ... 1000.</li>
+<li><strong>Finish</strong>: Calls <code>wg.Done()</code>.</li>
+</ol>
+<p><strong>Critical:</strong> <code>wg.Done()</code> cannot happen until the inner loop finishes. There is no magic jumping ahead.</p>
+<h2 id="visualizing-the-interleaving">Visualizing the Interleaving</h2>
+<pre data-lang="text" style="background-color:#2b303b;color:#c0c5ce;" class="language-text "><code class="language-text" data-lang="text"><span>Time →
+</span><span>
+</span><span>Main:  [Add] [Spawn] [Add] [Spawn] ... [Add] [Spawn] -----------------&gt; [Wait.......] [Resume]
+</span><span>          ↓       ↓       ↓       ↓             ↓                             ^
+</span><span>Worker 1:         [Start ...... Loop ...... Done]                             |
+</span><span>Worker 2:                 [Start ...... Loop ...... Done]                     |
+</span><span>Worker 50:                                      [Start ...... Loop ...... Done]
+</span></code></pre>
+<p>Notice:</p>
+<ol>
+<li><strong>Main</strong> is a fast, tight loop creating work.</li>
+<li><strong>Workers</strong> start whenever the scheduler has capacity.</li>
+<li><strong>Wait</strong> is the synchronization barrier where timelines converge.</li>
+</ol>
+<h2 id="the-go-mental-model">The "Go" Mental Model</h2>
+<blockquote>
+<p><strong><code>go f()</code> means "Schedule this for later."</strong>
+<strong><code>wg.Wait()</code> means "Wait for the schedule to clear."</strong></p>
+</blockquote>
+<h3 id="why-this-matters">Why this matters</h3>
+<p>If you assume <code>go</code> runs immediately, you might write code that depends on the worker doing something <em>before</em> the next loop iteration. That is a <strong>race condition</strong>.</p>
+<p><strong>Wrong:</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">50</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">results</span><span>[</span><span style="color:#bf616a;">i</span><span>] = </span><span style="color:#d08770;">true </span><span style="color:#65737e;">// Race! &quot;i&quot; changes as we run!
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p><strong>Right (Shadowing):</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">50</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#bf616a;">i </span><span style="color:#65737e;">// Copy value for this specific timeline
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">results</span><span>[</span><span style="color:#bf616a;">i</span><span>] = </span><span style="color:#d08770;">true
+</span><span>    }()
+</span><span>}
+</span></code></pre>
+<p>(Note: Go 1.22+ fixes the loop variable issue, but the <em>concurrency</em> principle remains: you cannot rely on execution order without explicit synchronization.)</p>
+<h2 id="summary">Summary</h2>
+<ol>
+<li><strong>Creation ≠ Execution</strong>: The <code>for</code> loop creates workers; it doesn't run them.</li>
+<li><strong>Independent Timelines</strong>: Once spawned, a goroutine is on its own time.</li>
+<li><strong>Explicit Barriers</strong>: <code>wg.Wait()</code> (or a channel receive) is the <em>only</em> guarantee that work is done.</li>
+</ol>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-mutex-waitgroup-ordering/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Mutex vs WaitGroup: Safety, Coordination, and Ordering</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-concurrency-toolbox/">
+                                <span class="button__text">The Go Concurrency Toolbox: When to Use What</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
