@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Share Memory by Communicating Part 1: The Pattern | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Understanding Go's channel-owned state pattern - the actor model in disguise">
+
+    <meta property="og:description" content="Understanding Go's channel-owned state pattern - the actor model in disguise">
+    <meta property="og:title" content="Share Memory by Communicating Part 1: The Pattern | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/share-memory-communicating-part-1/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Understanding Go's channel-owned state pattern - the actor model in disguise">
+    <meta name="twitter:title" content="Share Memory by Communicating Part 1: The Pattern | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/share-memory-communicating-part-1/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/share-memory-communicating-part-1/">Share Memory by Communicating Part 1: The Pattern</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/patterns/">#patterns</a></span>
+    
+
+        <div class="post-content">
+            <p>Go's famous proverb—"Don't communicate by sharing memory; share memory by communicating"—sounds abstract until you see it in action. This post breaks down the pattern, why it exists, and when to use it.</p>
+<span id="continue-reading"></span><h2 id="the-core-idea">The Core Idea</h2>
+<p>Instead of protecting shared state with mutexes:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">var </span><span style="color:#bf616a;">mu sync</span><span>.</span><span style="color:#b48ead;">Mutex
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">state </span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">int
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">get</span><span>(</span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">string</span><span>) </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">key</span><span>]
+</span><span>}
+</span></code></pre>
+<p>You confine state to a single goroutine and access it via channels:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">string
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan int
+</span><span>}
+</span><span>
+</span><span style="color:#bf616a;">reads </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan readOp</span><span>)
+</span><span>
+</span><span style="color:#65737e;">// State owner goroutine
+</span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">state </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">string</span><span>]</span><span style="color:#b48ead;">int</span><span>)
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">r </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">reads </span><span>{
+</span><span>        </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span><span>    }
+</span><span>}()
+</span><span>
+</span><span style="color:#65737e;">// Client usage
+</span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>)
+</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{&quot;</span><span style="color:#a3be8c;">mykey</span><span>&quot;, </span><span style="color:#bf616a;">resp</span><span>}
+</span><span style="color:#bf616a;">value </span><span>:= &lt;-</span><span style="color:#bf616a;">resp
+</span></code></pre>
+<p>The map is never touched by multiple goroutines. One goroutine owns it; others <strong>request</strong> access via channels.</p>
+<h2 id="why-this-pattern-exists">Why This Pattern Exists</h2>
+<p>Mutex-based code has well-known problems:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Lock</span><span>()
+</span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">val
+</span><span style="color:#bf616a;">mu</span><span>.</span><span style="color:#bf616a;">Unlock</span><span>()
+</span><span>
+</span><span style="color:#65737e;">// Problems:
+</span><span style="color:#65737e;">// - Easy to forget to lock
+</span><span style="color:#65737e;">// - Easy to deadlock (lock ordering)
+</span><span style="color:#65737e;">// - Invariants spread across codebase
+</span><span style="color:#65737e;">// - Hard to reason about correctness
+</span></code></pre>
+<p>Channel-owned state solves these by construction:</p>
+<ul>
+<li><strong>State has one owner</strong> — no concurrent access possible</li>
+<li><strong>Invariants live in one place</strong> — the owner goroutine</li>
+<li><strong>No accidental races</strong> — the compiler can't even express them</li>
+<li><strong>Easier to reason about</strong> — state transitions are explicit</li>
+</ul>
+<p>This is essentially the <strong>actor model</strong>, disguised as idiomatic Go.</p>
+<h2 id="complete-working-example">Complete Working Example</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">package </span><span style="color:#bf616a;">main
+</span><span>
+</span><span style="color:#b48ead;">import </span><span>(
+</span><span>    &quot;</span><span style="color:#a3be8c;">fmt</span><span>&quot;
+</span><span>    &quot;</span><span style="color:#a3be8c;">sync/atomic</span><span>&quot;
+</span><span>    &quot;</span><span style="color:#a3be8c;">time</span><span>&quot;
+</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan int
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">type </span><span>writeOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">val  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan bool
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">readOps</span><span>, </span><span style="color:#bf616a;">writeOps </span><span style="color:#b48ead;">uint64
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">reads </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan readOp</span><span>)
+</span><span>    </span><span style="color:#bf616a;">writes </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan writeOp</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// State owner goroutine
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#bf616a;">state </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">int</span><span>]</span><span style="color:#b48ead;">int</span><span>)
+</span><span>        </span><span style="color:#b48ead;">for </span><span>{
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">read </span><span>:= &lt;-</span><span style="color:#bf616a;">reads</span><span>:
+</span><span>                </span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">read</span><span>.</span><span style="color:#bf616a;">key</span><span>]
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">write </span><span>:= &lt;-</span><span style="color:#bf616a;">writes</span><span>:
+</span><span>                </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">write</span><span>.</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">write</span><span>.</span><span style="color:#bf616a;">val
+</span><span>                </span><span style="color:#bf616a;">write</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#d08770;">true
+</span><span>            }
+</span><span>        }
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// 100 reader goroutines
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">100</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>        </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>            </span><span style="color:#b48ead;">for </span><span>{
+</span><span>                </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>)
+</span><span>                </span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">i </span><span>% </span><span style="color:#d08770;">5</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}
+</span><span>                &lt;-</span><span style="color:#bf616a;">resp
+</span><span>                </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">readOps</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>                </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>)
+</span><span>            }
+</span><span>        }()
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// 10 writer goroutines
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">i </span><span>&lt; </span><span style="color:#d08770;">10</span><span>; </span><span style="color:#bf616a;">i</span><span>++ {
+</span><span>        </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>            </span><span style="color:#b48ead;">for </span><span>{
+</span><span>                </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan bool</span><span>)
+</span><span>                </span><span style="color:#bf616a;">writes </span><span>&lt;- </span><span style="color:#bf616a;">writeOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#bf616a;">i </span><span>% </span><span style="color:#d08770;">5</span><span>, </span><span style="color:#bf616a;">val</span><span>: </span><span style="color:#bf616a;">i</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}
+</span><span>                &lt;-</span><span style="color:#bf616a;">resp
+</span><span>                </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">AddUint64</span><span>(&amp;</span><span style="color:#bf616a;">writeOps</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>                </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Millisecond</span><span>)
+</span><span>            }
+</span><span>        }()
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
+</span><span>    </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Printf</span><span>(&quot;</span><span style="color:#a3be8c;">reads: </span><span style="color:#d08770;">%d</span><span style="color:#a3be8c;">, writes: </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span>&quot;,
+</span><span>        </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">LoadUint64</span><span>(&amp;</span><span style="color:#bf616a;">readOps</span><span>),
+</span><span>        </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">LoadUint64</span><span>(&amp;</span><span style="color:#bf616a;">writeOps</span><span>))
+</span><span>}
+</span></code></pre>
+<h2 id="how-it-works">How It Works</h2>
+<ol>
+<li><strong>State owner</strong> runs in a dedicated goroutine</li>
+<li><strong>Readers</strong> send requests on <code>reads</code> channel, block waiting for response</li>
+<li><strong>Writers</strong> send requests on <code>writes</code> channel, block waiting for acknowledgment</li>
+<li><strong>Owner</strong> processes one request at a time via <code>select</code></li>
+<li><strong>No locks</strong> — concurrency is handled by channel synchronization</li>
+</ol>
+<h2 id="trade-offs-be-honest">Trade-offs (Be Honest)</h2>
+<h3 id="pros">Pros</h3>
+<ul>
+<li>No locks</li>
+<li>No races</li>
+<li>Clear ownership</li>
+<li>Easy reasoning</li>
+</ul>
+<h3 id="cons">Cons</h3>
+<ul>
+<li>One goroutine can be a bottleneck</li>
+<li>Higher latency per operation (channel overhead)</li>
+<li>More allocations (response channels)</li>
+</ul>
+<p>This pattern shines when <strong>correctness matters more than raw throughput</strong>.</p>
+<h2 id="when-to-use-what">When to Use What</h2>
+<table><thead><tr><th>Situation</th><th>Use</th></tr></thead><tbody>
+<tr><td>Simple counters</td><td><code>atomic</code></td></tr>
+<tr><td>Small critical sections</td><td><code>sync.Mutex</code></td></tr>
+<tr><td>Complex shared state</td><td>Channel-owned goroutine</td></tr>
+<tr><td>High-throughput cache</td><td>Sharded mutex / lock-free</td></tr>
+<tr><td>Distributed logic</td><td>Actor model (this)</td></tr>
+</tbody></table>
+<h2 id="key-insight">Key Insight</h2>
+<p>The <code>time.Sleep(time.Second)</code> in the example is <strong>not lifecycle management</strong>. It's a demo hack. Real systems need proper shutdown, which we cover in Part 2.</p>
+<h2 id="what-s-missing">What's Missing</h2>
+<p>The example above has no:</p>
+<ul>
+<li>Graceful shutdown</li>
+<li>Cancellation support</li>
+<li>Failure handling</li>
+<li>Lifecycle management</li>
+</ul>
+<p>These are not optional in production. Next: <a href="/share-memory-communicating-part-2">Part 2</a> covers why <code>time.Sleep</code> is dangerous and how to fix it.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-2/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Share Memory by Communicating Part 2: Lifecycle &amp; Failure</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/go-templates-part-4/">
+                                <span class="button__text">Go Templates Part 4: Operating Templates at Scale</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

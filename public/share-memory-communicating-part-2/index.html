@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Share Memory by Communicating Part 2: Lifecycle &amp; Failure | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Why time.Sleep is dangerous, goroutine leaks, and why every goroutine needs an owner">
+
+    <meta property="og:description" content="Why time.Sleep is dangerous, goroutine leaks, and why every goroutine needs an owner">
+    <meta property="og:title" content="Share Memory by Communicating Part 2: Lifecycle & Failure | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/share-memory-communicating-part-2/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Why time.Sleep is dangerous, goroutine leaks, and why every goroutine needs an owner">
+    <meta name="twitter:title" content="Share Memory by Communicating Part 2: Lifecycle & Failure | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/share-memory-communicating-part-2/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/share-memory-communicating-part-2/">Share Memory by Communicating Part 2: Lifecycle &amp; Failure</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a></span>
+    
+
+        <div class="post-content">
+            <p>Part 1 showed the pattern. This part explains why it breaks in production without proper lifecycle management—and how goroutine leaks silently kill systems.</p>
+<span id="continue-reading"></span><h2 id="the-problem-with-time-sleep">The Problem with time.Sleep</h2>
+<p>The Part 1 example ended with:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
+</span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Printf</span><span>(&quot;</span><span style="color:#a3be8c;">reads: </span><span style="color:#d08770;">%d</span><span style="color:#96b5b4;">\n</span><span>&quot;, </span><span style="color:#bf616a;">atomic</span><span>.</span><span style="color:#bf616a;">LoadUint64</span><span>(&amp;</span><span style="color:#bf616a;">readOps</span><span>))
+</span></code></pre>
+<p>This is <strong>not lifecycle control</strong>. It's a demo hack.</p>
+<p>What <code>time.Sleep</code> actually does:</p>
+<ul>
+<li>Keeps <code>main</code> alive for 1 second</li>
+<li>Lets goroutines run opportunistically</li>
+<li>Then process exits abruptly</li>
+</ul>
+<p>When <code>main</code> returns:</p>
+<ul>
+<li>All goroutines are <strong>force-killed</strong></li>
+<li>No cleanup</li>
+<li>No guarantees</li>
+<li>No final responses</li>
+</ul>
+<p>This is <strong>process termination</strong>, not shutdown.</p>
+<h2 id="what-blocked-forever-actually-means">What "Blocked Forever" Actually Means</h2>
+<p>Consider this timeline:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// Reader goroutine
+</span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">readOp</span><span>{</span><span style="color:#bf616a;">key</span><span>: </span><span style="color:#d08770;">1</span><span>, </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>}
+</span><span>&lt;-</span><span style="color:#bf616a;">resp  </span><span style="color:#65737e;">// WAITING HERE
+</span></code></pre>
+<p>If the state owner goroutine panics, exits, or deadlocks—<strong>who sends to <code>resp</code>?</strong></p>
+<p>Answer: no one. The reader goroutine is <strong>blocked forever</strong>.</p>
+<p>But here's what confuses people: <strong>the program doesn't crash</strong>.</p>
+<h3 id="goroutines-block-independently">Goroutines Block Independently</h3>
+<p><strong>Critical rule</strong>: One goroutine blocking does NOT block others—including <code>main</code>.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">go func</span><span>() {
+</span><span>    &lt;-</span><span style="color:#bf616a;">ch  </span><span style="color:#65737e;">// blocks forever
+</span><span>}()
+</span><span>
+</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>)
+</span><span style="color:#65737e;">// main exits normally, leaked goroutine is killed by OS
+</span></code></pre>
+<p>The Go runtime doesn't care. It only panics when <strong>all</strong> goroutines are blocked.</p>
+<h2 id="why-this-matters-in-production">Why This Matters in Production</h2>
+<p>In a toy program, the bug is hidden:</p>
+<ul>
+<li>Process exits</li>
+<li>OS kills everything</li>
+<li>Blocked goroutines never accumulate</li>
+</ul>
+<p>In a real server:</p>
+<ul>
+<li>Handler goroutine blocks forever</li>
+<li>Request never completes</li>
+<li>Connection stays open</li>
+<li>Memory retained</li>
+<li>File descriptors leak</li>
+<li>Retries happen</li>
+<li>Traffic multiplies</li>
+</ul>
+<p>This is <strong>silent partial failure</strong>—the worst kind.</p>
+<h2 id="two-perspectives-on-blocked-goroutines">Two Perspectives on Blocked Goroutines</h2>
+<h3 id="process-perspective-go-runtime">Process Perspective (Go Runtime)</h3>
+<p>From Go's view:</p>
+<ul>
+<li><code>main</code> is running → fine</li>
+<li>some goroutine is blocked → not fatal</li>
+<li>program exits → OS cleans up</li>
+</ul>
+<p>No invariant is violated.</p>
+<h3 id="system-perspective-production">System Perspective (Production)</h3>
+<p>From a service's view:</p>
+<ul>
+<li>Requests hang</li>
+<li>Memory grows</li>
+<li>Goroutines accumulate</li>
+<li>Throughput collapses</li>
+<li>No crash, no alert, no panic</li>
+</ul>
+<p>The real problem:</p>
+<blockquote>
+<p><strong>You lost control over the lifecycle of work you started.</strong></p>
+</blockquote>
+<h2 id="every-goroutine-needs-an-owner">Every Goroutine Needs an Owner</h2>
+<p>The rule that Go doesn't enforce but production systems must:</p>
+<blockquote>
+<p><strong>Every goroutine must have an owner.</strong></p>
+</blockquote>
+<p>If you can't answer:</p>
+<ul>
+<li>Who started this goroutine?</li>
+<li>Who stops it?</li>
+<li>When does it exit?</li>
+</ul>
+<p>—then you've written a bug.</p>
+<h3 id="three-classes-of-goroutines">Three Classes of Goroutines</h3>
+<p><strong>1. Request-scoped</strong>: Tied to a request, must exit when request ends</p>
+<p><strong>2. Background services</strong>: Long-lived, must support graceful shutdown</p>
+<p><strong>3. Fire-and-forget</strong>: Almost always a bug in production</p>
+<h2 id="the-mental-model">The Mental Model</h2>
+<p>Lock this in:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Mutexes protect memory.
+</span><span>Channels protect sequencing.
+</span><span>Context protects lifetimes.
+</span><span>Supervision protects systems.
+</span></code></pre>
+<p>Most Go bugs happen when engineers use only the first two.</p>
+<h2 id="the-root-cause">The Root Cause</h2>
+<p>The Part 1 example has:</p>
+<ul>
+<li>No graceful shutdown</li>
+<li>No cancellation support</li>
+<li>No failure handling</li>
+<li>No lifecycle management</li>
+</ul>
+<p>Without these, your state owner pattern will leak goroutines under any failure condition.</p>
+<h2 id="key-takeaway">Key Takeaway</h2>
+<blockquote>
+<p><strong>"The program didn't deadlock" is meaningless.</strong>
+<strong>"A goroutine had no exit path" is the real bug.</strong></p>
+</blockquote>
+<p>Next: <a href="/share-memory-communicating-part-3">Part 3</a> adds context-based cancellation and proper shutdown.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-3/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Share Memory by Communicating Part 3: Context &amp; Supervision</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-1/">
+                                <span class="button__text">Share Memory by Communicating Part 1: The Pattern</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

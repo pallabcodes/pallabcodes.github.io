@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>The Go Scheduler: G-P-M Model Explained | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Understanding how Go runs millions of goroutines on few OS threads - the G-P-M model demystified">
+
+    <meta property="og:description" content="Understanding how Go runs millions of goroutines on few OS threads - the G-P-M model demystified">
+    <meta property="og:title" content="The Go Scheduler: G-P-M Model Explained | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-scheduler-explained/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Understanding how Go runs millions of goroutines on few OS threads - the G-P-M model demystified">
+    <meta name="twitter:title" content="The Go Scheduler: G-P-M Model Explained | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-scheduler-explained/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-scheduler-explained/">The Go Scheduler: G-P-M Model Explained</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/internals/">#internals</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/scheduler/">#scheduler</a></span>
+    
+
+        <div class="post-content">
+            <p>Go runs many goroutines on few OS threads. Understanding how is the difference between hoping your concurrent code works and <em>knowing</em> it works.</p>
+<span id="continue-reading"></span><h2 id="the-big-picture">The Big Picture</h2>
+<blockquote>
+<p>Go runs <strong>many goroutines</strong> on <strong>few OS threads</strong> using a <strong>cooperative + preemptive scheduler</strong> managed by the runtime.</p>
+</blockquote>
+<p>You don't control threads. You control concurrency structure.</p>
+<h2 id="the-g-p-m-model">The G-P-M Model</h2>
+<p>Go scheduling is built around three entities:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>G = Goroutine  (unit of work)
+</span><span>P = Processor  (scheduler context)
+</span><span>M = Machine    (OS thread)
+</span></code></pre>
+<p>The one-sentence summary:</p>
+<blockquote>
+<p><strong>G runs on M, but only when it has a P.</strong></p>
+</blockquote>
+<h3 id="g-goroutine">G — Goroutine</h3>
+<ul>
+<li>Lightweight task</li>
+<li>Starts with ~2KB stack (grows as needed)</li>
+<li>Can be parked, resumed, migrated</li>
+<li>Millions are fine</li>
+</ul>
+<p>Think: <strong>task / coroutine</strong></p>
+<h3 id="m-machine-os-thread">M — Machine (OS Thread)</h3>
+<ul>
+<li>Actual kernel thread</li>
+<li>Expensive to create</li>
+<li>Blocks on syscalls</li>
+<li>Created/destroyed by runtime</li>
+</ul>
+<p>Think: <strong>CPU execution vessel</strong></p>
+<h3 id="p-processor-scheduler-token">P — Processor (Scheduler Token)</h3>
+<ul>
+<li>Holds run queue</li>
+<li>Owns resources (timers, GC state)</li>
+<li>Limits parallelism</li>
+</ul>
+<p>Think: <strong>permission to run Go code</strong></p>
+<h3 id="key-invariant">Key Invariant</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>At most GOMAXPROCS Ps exist
+</span><span>At most GOMAXPROCS Ms actively executing Go code
+</span></code></pre>
+<p>Default: <code>GOMAXPROCS = number of CPU cores</code></p>
+<h2 id="visual-model">Visual Model</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>[G] [G] [G] [G]   ← goroutines
+</span><span>     ↓   ↓
+</span><span>   [P] [P]        ← processors (scheduler slots)
+</span><span>     ↓   ↓
+</span><span>   [M] [M]        ← OS threads
+</span><span>     ↓   ↓
+</span><span>   CPU CPU
+</span></code></pre>
+<p>Many G. Few P. Few active M.</p>
+<h2 id="scheduling-lifecycle">Scheduling Lifecycle</h2>
+<p>When you write <code>go work()</code>:</p>
+<ol>
+<li>A new <strong>G</strong> is created</li>
+<li>G is put into a <strong>run queue</strong></li>
+<li>A <strong>P</strong> picks G</li>
+<li>P binds to an <strong>M</strong></li>
+<li>M executes G</li>
+<li>G blocks / yields / finishes</li>
+<li>P schedules next G</li>
+</ol>
+<h2 id="run-queues">Run Queues</h2>
+<h3 id="local-run-queue-per-p">Local Run Queue (per P)</h3>
+<p>Each P has its own queue:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>P0: G1 → G2 → G3
+</span><span>P1: G4 → G5
+</span></code></pre>
+<p>Fast (mostly lock-free), FIFO-ish.</p>
+<h3 id="global-run-queue">Global Run Queue</h3>
+<p>Shared across Ps. Used when:</p>
+<ul>
+<li>New goroutine created</li>
+<li>Local queue overflows</li>
+<li>Fairness balancing</li>
+</ul>
+<h3 id="priority">Priority</h3>
+<ol>
+<li>Local run queue</li>
+<li>Global run queue</li>
+<li>Work stealing</li>
+</ol>
+<h2 id="work-stealing">Work Stealing</h2>
+<p>If a P runs out of work:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>P0 queue empty → steal half from another P
+</span></code></pre>
+<p>Why this matters:</p>
+<ul>
+<li>Keeps CPUs busy</li>
+<li>Avoids hotspots</li>
+<li>Enables scalability</li>
+</ul>
+<p><strong>You don't need to balance goroutines manually.</strong> The scheduler already does.</p>
+<h2 id="blocking-behavior">Blocking Behavior</h2>
+<p>This is where Go shines.</p>
+<h3 id="blocking-syscall">Blocking Syscall</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">data </span><span>:= </span><span style="color:#bf616a;">read</span><span>(</span><span style="color:#bf616a;">fd</span><span>)
+</span></code></pre>
+<p>What happens:</p>
+<ol>
+<li>M enters syscall</li>
+<li>M is <strong>detached from P</strong></li>
+<li>P is handed to another M</li>
+<li>Other goroutines continue running</li>
+</ol>
+<blockquote>
+<p>Blocking syscalls do NOT block the scheduler.</p>
+</blockquote>
+<h3 id="channel-mutex-blocking">Channel/Mutex Blocking</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>&lt;-</span><span style="color:#bf616a;">ch
+</span></code></pre>
+<p>What happens:</p>
+<ol>
+<li>G is parked</li>
+<li>P schedules another G</li>
+<li>No OS thread blocked</li>
+</ol>
+<p>This is why Go scales.</p>
+<h2 id="preemption-since-go-1-14">Preemption (Since Go 1.14)</h2>
+<p>Older Go was cooperative-only. That caused starvation.</p>
+<p>Now Go has <strong>asynchronous preemption</strong>.</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span>{
+</span><span>    </span><span style="color:#65737e;">// tight loop - no function calls
+</span><span>}
+</span></code></pre>
+<p>Before 1.14: Could starve other goroutines.
+After 1.14: Runtime can interrupt this safely.</p>
+<p>How it works:</p>
+<ul>
+<li>Runtime inserts safe points</li>
+<li>Signal-based interruption</li>
+<li>Stack is safely inspected</li>
+</ul>
+<blockquote>
+<p>Prevents one goroutine from hogging the CPU.</p>
+</blockquote>
+<h2 id="fairness">Fairness</h2>
+<p><strong>Does Go guarantee fairness?</strong> No strict fairness.</p>
+<p><strong>Does Go prevent starvation?</strong> Practically, yes.</p>
+<p>Mechanisms:</p>
+<ul>
+<li>Global queue injection</li>
+<li>Preemption</li>
+<li>Work stealing</li>
+</ul>
+<p>If your goroutine starves others, it's usually a design bug, not scheduler failure.</p>
+<h2 id="gc-interaction">GC Interaction</h2>
+<p>Go GC is concurrent, mostly non-blocking, and scheduler-aware.</p>
+<h3 id="coordination">Coordination</h3>
+<ul>
+<li>GC needs all Ps to reach safe points</li>
+<li>Short STW (stop-the-world) phases</li>
+<li>Scheduler cooperates with GC</li>
+</ul>
+<p>Before Go 1.14, tight loops could cause GC starvation. Preemption fixed this.</p>
+<h2 id="gomaxprocs-tuning">GOMAXPROCS Tuning</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">runtime</span><span>.</span><span style="color:#bf616a;">GOMAXPROCS</span><span>(</span><span style="color:#bf616a;">n</span><span>)
+</span></code></pre>
+<table><thead><tr><th>Scenario</th><th>Recommendation</th></tr></thead><tbody>
+<tr><td>CPU-bound</td><td>cores</td></tr>
+<tr><td>I/O-heavy</td><td>cores</td></tr>
+<tr><td>Container with CPU limit</td><td>Set explicitly</td></tr>
+<tr><td>Latency-sensitive</td><td>Test and measure</td></tr>
+</tbody></table>
+<h3 id="container-gotcha">Container Gotcha</h3>
+<p>Kubernetes limits CPU, but Go sees host CPUs.</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Wrong: sees 64 cores in container limited to 2
+</span><span style="color:#65737e;"># Right: set explicitly
+</span><span style="color:#bf616a;">GOMAXPROCS</span><span>=</span><span style="color:#a3be8c;">2
+</span></code></pre>
+<p>Or use <a href="https://github.com/uber-go/automaxprocs">automaxprocs</a>.</p>
+<h2 id="go-vs-async-await">Go vs async/await</h2>
+<table><thead><tr><th>Go Scheduler</th><th>JS async/await</th></tr></thead><tbody>
+<tr><td>Preemptive</td><td>Cooperative</td></tr>
+<tr><td>Multi-core</td><td>Single-threaded (mostly)</td></tr>
+<tr><td>True parallelism</td><td>Concurrency illusion</td></tr>
+<tr><td>No event loop</td><td>Central event loop</td></tr>
+</tbody></table>
+<blockquote>
+<p>Go doesn't "await"—it <strong>schedules</strong>.</p>
+</blockquote>
+<h2 id="debugging-the-scheduler">Debugging the Scheduler</h2>
+<h3 id="trace-tool">Trace Tool</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">go</span><span> test</span><span style="color:#bf616a;"> -run</span><span> TestX</span><span style="color:#bf616a;"> -trace</span><span> trace.out
+</span><span style="color:#bf616a;">go</span><span> tool trace trace.out
+</span></code></pre>
+<p>You can see:</p>
+<ul>
+<li>Goroutine creation</li>
+<li>Blocking events</li>
+<li>Preemption</li>
+<li>GC pauses</li>
+</ul>
+<h3 id="pprof-indicators">pprof Indicators</h3>
+<p>Look for:</p>
+<ul>
+<li>Too many runnable goroutines</li>
+<li>Long-running goroutines</li>
+<li>Scheduler contention</li>
+</ul>
+<h2 id="common-scheduler-related-bugs">Common Scheduler-Related Bugs</h2>
+<h3 id="goroutine-leaks">Goroutine Leaks</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">go func</span><span>() {
+</span><span>    &lt;-</span><span style="color:#bf616a;">ch  </span><span style="color:#65737e;">// never receives
+</span><span>}()
+</span></code></pre>
+<h3 id="unbounded-goroutines">Unbounded Goroutines</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span>{
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">work</span><span>()  </span><span style="color:#65737e;">// spawns forever
+</span><span>}
+</span></code></pre>
+<h3 id="cpu-hogs">CPU Hogs</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span>{
+</span><span>    </span><span style="color:#65737e;">// no yields, no function calls
+</span><span>}
+</span></code></pre>
+<h2 id="final-mental-model">Final Mental Model</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>G = work
+</span><span>P = permission to run
+</span><span>M = thread
+</span><span>Scheduler = traffic controller
+</span></code></pre>
+<h2 id="key-takeaway">Key Takeaway</h2>
+<blockquote>
+<p><strong>The Go scheduler multiplexes millions of goroutines onto a small number of OS threads using the G-P-M model, work stealing, and preemption—making concurrency cheap, parallelism real, and blocking mostly invisible unless you design it poorly.</strong></p>
+</blockquote>
+<p>Understanding this model helps you:</p>
+<ul>
+<li>Debug hanging programs</li>
+<li>Reason about performance</li>
+<li>Design correct concurrent systems</li>
+<li>Tune for containers</li>
+</ul>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-templates-part-1/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Go Templates Part 1: The Mental Model</span>
+                            </a>
+                        </span>
+                    
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

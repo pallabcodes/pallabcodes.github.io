@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Share Memory by Communicating Part 3: Context &amp; Supervision | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Adding proper cancellation, shutdown, and supervision to channel-owned state">
+
+    <meta property="og:description" content="Adding proper cancellation, shutdown, and supervision to channel-owned state">
+    <meta property="og:title" content="Share Memory by Communicating Part 3: Context & Supervision | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/share-memory-communicating-part-3/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Adding proper cancellation, shutdown, and supervision to channel-owned state">
+    <meta name="twitter:title" content="Share Memory by Communicating Part 3: Context & Supervision | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/share-memory-communicating-part-3/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/share-memory-communicating-part-3/">Share Memory by Communicating Part 3: Context &amp; Supervision</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/context/">#context</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a></span>
+    
+
+        <div class="post-content">
+            <p>Part 2 explained why the naive pattern breaks. This part fixes it with proper context-based cancellation and supervision.</p>
+<span id="continue-reading"></span><h2 id="the-core-rule">The Core Rule</h2>
+<blockquote>
+<p><strong>The state owner must respect cancellation. Only it decides when to exit.</strong></p>
+</blockquote>
+<p>Callers can <em>request</em> cancellation, but the owner goroutine controls its own shutdown.</p>
+<h2 id="step-1-context-aware-request-types">Step 1: Context-Aware Request Types</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">ctx  context</span><span>.</span><span style="color:#b48ead;">Context
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan int
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">type </span><span>writeOp </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">ctx  context</span><span>.</span><span style="color:#b48ead;">Context
+</span><span>    </span><span style="color:#bf616a;">key  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">val  </span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan bool
+</span><span>}
+</span></code></pre>
+<p>Why this matters:</p>
+<ul>
+<li>Allows per-request timeout</li>
+<li>Allows request abandonment</li>
+<li>Prevents goroutine leaks</li>
+</ul>
+<h2 id="step-2-context-aware-state-owner">Step 2: Context-Aware State Owner</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">stateOwner</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">reads </span><span>&lt;-</span><span style="color:#b48ead;">chan readOp</span><span>, </span><span style="color:#bf616a;">writes </span><span>&lt;-</span><span style="color:#b48ead;">chan writeOp</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">state </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">map</span><span>[</span><span style="color:#b48ead;">int</span><span>]</span><span style="color:#b48ead;">int</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return  </span><span style="color:#65737e;">// Graceful shutdown
+</span><span>
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r </span><span>:= &lt;-</span><span style="color:#bf616a;">reads</span><span>:
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">key</span><span>]:
+</span><span>            </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>                </span><span style="color:#65737e;">// Caller abandoned request
+</span><span>            }
+</span><span>
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w </span><span>:= &lt;-</span><span style="color:#bf616a;">writes</span><span>:
+</span><span>            </span><span style="color:#b48ead;">select </span><span>{
+</span><span>            </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>                </span><span style="color:#65737e;">// Caller abandoned
+</span><span>            </span><span style="color:#b48ead;">default</span><span>:
+</span><span>                </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">val
+</span><span>                </span><span style="color:#b48ead;">select </span><span>{
+</span><span>                </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#d08770;">true</span><span>:
+</span><span>                </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>                }
+</span><span>            }
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="why-the-double-select">Why the Double Select?</h3>
+<p>The inner <code>select</code> is critical:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">key</span><span>]:
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">r</span><span>.</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>}
+</span></code></pre>
+<p>Because the caller may cancel <strong>before receiving the response</strong>. Without this, the owner blocks forever on <code>r.resp &lt;-</code>.</p>
+<p>This is a <strong>classic goroutine leak bug</strong>.</p>
+<h2 id="step-3-context-aware-callers">Step 3: Context-Aware Callers</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">read</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">reads </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">readOp</span><span>, </span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">int</span><span>) (</span><span style="color:#b48ead;">int</span><span>, </span><span style="color:#b48ead;">error</span><span>) {
+</span><span>    </span><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#d08770;">1</span><span>)  </span><span style="color:#65737e;">// Buffered!
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">req </span><span>:= </span><span style="color:#bf616a;">readOp</span><span>{
+</span><span>        </span><span style="color:#bf616a;">ctx</span><span>:  </span><span style="color:#bf616a;">ctx</span><span>,
+</span><span>        </span><span style="color:#bf616a;">key</span><span>:  </span><span style="color:#bf616a;">key</span><span>,
+</span><span>        </span><span style="color:#bf616a;">resp</span><span>: </span><span style="color:#bf616a;">resp</span><span>,
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">reads </span><span>&lt;- </span><span style="color:#bf616a;">req</span><span>:
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span>, </span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Err</span><span>()
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">val </span><span>:= &lt;-</span><span style="color:#bf616a;">resp</span><span>:
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">val</span><span>, </span><span style="color:#d08770;">nil
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span>, </span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Err</span><span>()
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p><strong>Note the buffered response channel</strong>. This prevents the owner from blocking if the caller exits early.</p>
+<h2 id="what-supervision-means-in-go">What "Supervision" Means in Go</h2>
+<p>Go doesn't have supervisors like Erlang. Supervision in Go means <strong>three explicit guarantees</strong>:</p>
+<ol>
+<li><strong>Start</strong> — goroutine is launched</li>
+<li><strong>Stop</strong> — goroutine can be cancelled</li>
+<li><strong>Wait</strong> — caller can block until goroutine exits</li>
+</ol>
+<p>Nothing more, nothing less.</p>
+<h2 id="canonical-supervision-structure">Canonical Supervision Structure</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>Supervisor </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">ctx    context</span><span>.</span><span style="color:#b48ead;">Context
+</span><span>    </span><span style="color:#bf616a;">cancel context</span><span>.</span><span style="color:#b48ead;">CancelFunc
+</span><span>    </span><span style="color:#bf616a;">wg     sync</span><span>.</span><span style="color:#b48ead;">WaitGroup
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">NewSupervisor</span><span>(</span><span style="color:#bf616a;">parent context</span><span>.</span><span style="color:#b48ead;">Context</span><span>) *</span><span style="color:#b48ead;">Supervisor </span><span>{
+</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithCancel</span><span>(</span><span style="color:#bf616a;">parent</span><span>)
+</span><span>    </span><span style="color:#b48ead;">return </span><span>&amp;</span><span style="color:#bf616a;">Supervisor</span><span>{</span><span style="color:#bf616a;">ctx</span><span>: </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel</span><span>: </span><span style="color:#bf616a;">cancel</span><span>}
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">Supervisor</span><span>) </span><span style="color:#8fa1b3;">Go</span><span>(</span><span style="color:#bf616a;">fn </span><span style="color:#b48ead;">func</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>)) {
+</span><span>    </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>        </span><span style="color:#bf616a;">fn</span><span>(</span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">ctx</span><span>)
+</span><span>    }()
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span>(</span><span style="color:#bf616a;">s </span><span>*</span><span style="color:#b48ead;">Supervisor</span><span>) </span><span style="color:#8fa1b3;">Stop</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>    </span><span style="color:#bf616a;">s</span><span>.</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span><span>}
+</span></code></pre>
+<p>This is <strong>90% of production Go concurrency</strong>.</p>
+<h2 id="putting-it-together">Putting It Together</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">cancel </span><span>:= </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">WithCancel</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>())
+</span><span>    </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">reads </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan readOp</span><span>)
+</span><span>    </span><span style="color:#bf616a;">writes </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan writeOp</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">wg sync</span><span>.</span><span style="color:#b48ead;">WaitGroup
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start state owner
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Add</span><span>(</span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#b48ead;">go func</span><span>() {
+</span><span>        </span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Done</span><span>()
+</span><span>        </span><span style="color:#bf616a;">stateOwner</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">reads</span><span>, </span><span style="color:#bf616a;">writes</span><span>)
+</span><span>    }()
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start workers...
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Wait for shutdown signal
+</span><span>    </span><span style="color:#bf616a;">sigCh </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#b48ead;">Signal</span><span>, </span><span style="color:#d08770;">1</span><span>)
+</span><span>    </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">Notify</span><span>(</span><span style="color:#bf616a;">sigCh</span><span>, </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Interrupt</span><span>, </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>)
+</span><span>    &lt;-</span><span style="color:#bf616a;">sigCh
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Graceful shutdown
+</span><span>    </span><span style="color:#bf616a;">cancel</span><span>()
+</span><span>    </span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()
+</span><span>}
+</span></code></pre>
+<h2 id="the-original-failure-scenario-fixed">The Original Failure Scenario — Fixed</h2>
+<h3 id="before-part-1">Before (Part 1)</h3>
+<ul>
+<li>Owner dies → reader blocks forever → goroutine leaks → system degrades</li>
+</ul>
+<h3 id="after-this-pattern">After (This Pattern)</h3>
+<ul>
+<li>Owner dies → supervisor cancels context → reader sees <code>ctx.Done()</code> → reader exits → resources released → system remains healthy</li>
+</ul>
+<p>The runtime behavior is unchanged. <strong>Your guarantees changed.</strong></p>
+<h2 id="comparison-mutex-vs-channel-pattern">Comparison: Mutex vs Channel Pattern</h2>
+<table><thead><tr><th>Concern</th><th>Mutex</th><th>Channel-owned</th></tr></thead><tbody>
+<tr><td>Data races</td><td>Solved</td><td>Solved</td></tr>
+<tr><td>Lifecycle</td><td>Not addressed</td><td>Explicit</td></tr>
+<tr><td>Cancellation</td><td>Not addressed</td><td>Built-in</td></tr>
+<tr><td>Ownership</td><td>Implicit</td><td>Explicit</td></tr>
+<tr><td>Partial failure</td><td>Breaks silently</td><td>Handled</td></tr>
+</tbody></table>
+<h2 id="the-final-rule">The Final Rule</h2>
+<blockquote>
+<p><strong>If a goroutine can block, it must be cancellable.</strong>
+<strong>If it is cancellable, someone must own that cancellation.</strong></p>
+</blockquote>
+<p>Next: <a href="/share-memory-communicating-part-4">Part 4</a> covers advanced topics—buffered channels, Kubernetes shutdown, errgroup supervision, and scaling.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-4/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Share Memory by Communicating Part 4: Scaling &amp; Production Patterns</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-2/">
+                                <span class="button__text">Share Memory by Communicating Part 2: Lifecycle &amp; Failure</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>

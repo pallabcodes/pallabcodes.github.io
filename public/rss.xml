@@ -9,6 +9,14 @@
       <atom:link href="https://pallabcodes.github.io/rss.xml" rel="self" type="application/rss+xml"/>
       <lastBuildDate>Fri, 19 Dec 2025 00:00:00 +0000</lastBuildDate>
       <item>
+          <title>The Go Scheduler: G-P-M Model Explained</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/go-scheduler-explained/</link>
+          <guid>https://pallabcodes.github.io/go-scheduler-explained/</guid>
+          <description xml:base="https://pallabcodes.github.io/go-scheduler-explained/">&lt;p&gt;Go runs many goroutines on few OS threads. Understanding how is the difference between hoping your concurrent code works and &lt;em&gt;knowing&lt;&#x2F;em&gt; it works.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
           <title>Go Templates Part 1: The Mental Model</title>
           <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
           <author>Unknown</author>
@@ -39,6 +47,38 @@
           <link>https://pallabcodes.github.io/go-templates-part-4/</link>
           <guid>https://pallabcodes.github.io/go-templates-part-4/</guid>
           <description xml:base="https://pallabcodes.github.io/go-templates-part-4/">&lt;p&gt;At a certain scale, templates become infrastructure. They need versioning, observability, rollback, and operational runbooks. This post covers how to treat templates as first-class production assets.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Share Memory by Communicating Part 1: The Pattern</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/share-memory-communicating-part-1/</link>
+          <guid>https://pallabcodes.github.io/share-memory-communicating-part-1/</guid>
+          <description xml:base="https://pallabcodes.github.io/share-memory-communicating-part-1/">&lt;p&gt;Go&#x27;s famous proverb—&quot;Don&#x27;t communicate by sharing memory; share memory by communicating&quot;—sounds abstract until you see it in action. This post breaks down the pattern, why it exists, and when to use it.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Share Memory by Communicating Part 2: Lifecycle &amp; Failure</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/share-memory-communicating-part-2/</link>
+          <guid>https://pallabcodes.github.io/share-memory-communicating-part-2/</guid>
+          <description xml:base="https://pallabcodes.github.io/share-memory-communicating-part-2/">&lt;p&gt;Part 1 showed the pattern. This part explains why it breaks in production without proper lifecycle management—and how goroutine leaks silently kill systems.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Share Memory by Communicating Part 3: Context &amp; Supervision</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/share-memory-communicating-part-3/</link>
+          <guid>https://pallabcodes.github.io/share-memory-communicating-part-3/</guid>
+          <description xml:base="https://pallabcodes.github.io/share-memory-communicating-part-3/">&lt;p&gt;Part 2 explained why the naive pattern breaks. This part fixes it with proper context-based cancellation and supervision.&lt;&#x2F;p&gt;</description>
+      </item>
+      <item>
+          <title>Share Memory by Communicating Part 4: Scaling &amp; Production Patterns</title>
+          <pubDate>Fri, 19 Dec 2025 00:00:00 +0000</pubDate>
+          <author>Unknown</author>
+          <link>https://pallabcodes.github.io/share-memory-communicating-part-4/</link>
+          <guid>https://pallabcodes.github.io/share-memory-communicating-part-4/</guid>
+          <description xml:base="https://pallabcodes.github.io/share-memory-communicating-part-4/">&lt;p&gt;Parts 1-3 built the foundation. This final part covers production scaling: buffered channels, Kubernetes integration, errgroup supervision, performance tuning, and comparisons with Erlang&#x2F;Akka.&lt;&#x2F;p&gt;</description>
       </item>
       <item>
           <title>Handling OS Signals in Go</title>

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Share Memory by Communicating Part 4: Scaling &amp; Production Patterns | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="Buffered channels, Kubernetes shutdown, errgroup, batching, and when this pattern breaks">
+
+    <meta property="og:description" content="Buffered channels, Kubernetes shutdown, errgroup, batching, and when this pattern breaks">
+    <meta property="og:title" content="Share Memory by Communicating Part 4: Scaling & Production Patterns | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/share-memory-communicating-part-4/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="Buffered channels, Kubernetes shutdown, errgroup, batching, and when this pattern breaks">
+    <meta name="twitter:title" content="Share Memory by Communicating Part 4: Scaling & Production Patterns | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/share-memory-communicating-part-4/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/share-memory-communicating-part-4/">Share Memory by Communicating Part 4: Scaling &amp; Production Patterns</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-19
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/kubernetes/">#kubernetes</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/production/">#production</a></span>
+    
+
+        <div class="post-content">
+            <p>Parts 1-3 built the foundation. This final part covers production scaling: buffered channels, Kubernetes integration, errgroup supervision, performance tuning, and comparisons with Erlang/Akka.</p>
+<span id="continue-reading"></span><h2 id="buffered-channels-when-they-help-vs-hide-bugs">Buffered Channels: When They Help vs Hide Bugs</h2>
+<p>A buffered channel:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ch </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan T</span><span>, </span><span style="color:#bf616a;">N</span><span>)
+</span></code></pre>
+<p>Means: <strong>send doesn't require a simultaneous receive—up to N items.</strong></p>
+<h3 id="when-buffered-channels-help">When Buffered Channels Help</h3>
+<p><strong>1. Decoupling producer/consumer latency</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">jobs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Job</span><span>, </span><span style="color:#d08770;">100</span><span>)
+</span></code></pre>
+<p>Use when producers are bursty and consumers are steady. This is <strong>load smoothing</strong>, not concurrency control.</p>
+<p><strong>2. Preventing response-path deadlocks</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">resp </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#d08770;">1</span><span>)  </span><span style="color:#65737e;">// Buffered
+</span></code></pre>
+<p>Owner can send even if caller exits. Reduces blast radius.</p>
+<p><strong>3. Semaphores</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">sem </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan struct</span><span>{}, </span><span style="color:#d08770;">10</span><span>)
+</span></code></pre>
+<p>Classic concurrency limiting. Bounded by design.</p>
+<h3 id="when-buffered-channels-hide-bugs">When Buffered Channels Hide Bugs</h3>
+<p><strong>1. Masking missing consumers</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ch </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Event</span><span>, </span><span style="color:#d08770;">1000</span><span>)
+</span><span style="color:#bf616a;">ch </span><span>&lt;- </span><span style="color:#bf616a;">e  </span><span style="color:#65737e;">// Succeeds!
+</span><span style="color:#65737e;">// But no consumer exists
+</span><span style="color:#65737e;">// Buffer fills slowly
+</span><span style="color:#65737e;">// System degrades later
+</span></code></pre>
+<p>This converts a <strong>correctness bug</strong> into a <strong>latency/memory bug</strong>.</p>
+<p><strong>2. "Fixing" deadlocks accidentally</strong></p>
+<p>Adding a buffer makes the symptom disappear, but the caller still leaked.</p>
+<p><strong>3. Using buffers as flow control</strong></p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan Job</span><span>, </span><span style="color:#d08770;">1_000_000</span><span>)
+</span></code></pre>
+<p>This is unbounded memory in disguise.</p>
+<h3 id="the-rule">The Rule</h3>
+<blockquote>
+<p><strong>Buffers absorb timing differences, not logic errors.</strong>
+<strong>If correctness depends on buffering, the design is wrong.</strong></p>
+</blockquote>
+<h2 id="kubernetes-sigterm-context">Kubernetes SIGTERM → Context</h2>
+<p>This is mechanical, not conceptual.</p>
+<h3 id="what-kubernetes-does">What Kubernetes Does</h3>
+<ol>
+<li>Pod receives <code>SIGTERM</code></li>
+<li>Kubernetes waits <code>terminationGracePeriodSeconds</code></li>
+<li>If still running → <code>SIGKILL</code></li>
+</ol>
+<p>Go does <strong>nothing automatically</strong>.</p>
+<h3 id="canonical-production-wiring">Canonical Production Wiring</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">stop </span><span>:= </span><span style="color:#bf616a;">signal</span><span>.</span><span style="color:#bf616a;">NotifyContext</span><span>(
+</span><span>    </span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>(),
+</span><span>    </span><span style="color:#bf616a;">os</span><span>.</span><span style="color:#bf616a;">Interrupt</span><span>,
+</span><span>    </span><span style="color:#bf616a;">syscall</span><span>.</span><span style="color:#bf616a;">SIGTERM</span><span>,
+</span><span>)
+</span><span style="color:#b48ead;">defer </span><span style="color:#bf616a;">stop</span><span>()
+</span><span>
+</span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">stateOwner</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">reads</span><span>, </span><span style="color:#bf616a;">writes</span><span>)
+</span><span>
+</span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>()  </span><span style="color:#65737e;">// Wait for SIGTERM
+</span><span style="color:#bf616a;">wg</span><span>.</span><span style="color:#bf616a;">Wait</span><span>()     </span><span style="color:#65737e;">// Wait for cleanup
+</span></code></pre>
+<p>Every goroutine must obey:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>    </span><span style="color:#b48ead;">return
+</span><span>}
+</span></code></pre>
+<h3 id="the-1-go-in-kubernetes-bug">The #1 Go-in-Kubernetes Bug</h3>
+<p>Not doing this:</p>
+<ul>
+<li>Pod keeps accepting requests</li>
+<li>Kubernetes sends SIGKILL</li>
+<li>In-flight work lost</li>
+<li>Partial writes</li>
+<li>Corrupt state</li>
+</ul>
+<h2 id="errgroup-fail-fast-supervision">errgroup: Fail-Fast Supervision</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">g</span><span>, </span><span style="color:#bf616a;">ctx </span><span>:= </span><span style="color:#bf616a;">errgroup</span><span>.</span><span style="color:#bf616a;">WithContext</span><span>(</span><span style="color:#bf616a;">parent</span><span>)
+</span><span>
+</span><span style="color:#bf616a;">g</span><span>.</span><span style="color:#bf616a;">Go</span><span>(</span><span style="color:#b48ead;">func</span><span>() </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">worker1</span><span>(</span><span style="color:#bf616a;">ctx</span><span>)
+</span><span>})
+</span><span>
+</span><span style="color:#bf616a;">g</span><span>.</span><span style="color:#bf616a;">Go</span><span>(</span><span style="color:#b48ead;">func</span><span>() </span><span style="color:#b48ead;">error </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">worker2</span><span>(</span><span style="color:#bf616a;">ctx</span><span>)
+</span><span>})
+</span><span>
+</span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">g</span><span>.</span><span style="color:#bf616a;">Wait</span><span>(); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>    </span><span style="color:#bf616a;">log</span><span>.</span><span style="color:#bf616a;">Fatal</span><span>(</span><span style="color:#bf616a;">err</span><span>)
+</span><span>}
+</span></code></pre>
+<p>What errgroup provides:</p>
+<ol>
+<li><strong>Shared cancellation</strong> — one fails, all cancel</li>
+<li><strong>Error propagation</strong> — first error surfaces</li>
+<li><strong>Join</strong> — <code>Wait()</code> blocks until all done</li>
+</ol>
+<p>What errgroup does NOT do:</p>
+<ul>
+<li>Restart</li>
+<li>Backoff</li>
+<li>Isolation</li>
+</ul>
+<p>Use for: request fan-out, parallel RPCs, bounded lifetimes.</p>
+<h2 id="batching-for-performance">Batching for Performance</h2>
+<p>The channel-per-request model can bottleneck at scale.</p>
+<h3 id="batch-reads">Batch Reads</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">type </span><span>readBatch </span><span style="color:#b48ead;">struct </span><span>{
+</span><span>    </span><span style="color:#bf616a;">keys </span><span>[]</span><span style="color:#b48ead;">int
+</span><span>    </span><span style="color:#bf616a;">resp </span><span style="color:#b48ead;">chan </span><span>[]</span><span style="color:#b48ead;">int
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">batch </span><span>:= &lt;-</span><span style="color:#bf616a;">readBatches</span><span>:
+</span><span>    </span><span style="color:#bf616a;">result </span><span>:= </span><span style="color:#96b5b4;">make</span><span>([]</span><span style="color:#b48ead;">int</span><span>, </span><span style="color:#96b5b4;">len</span><span>(</span><span style="color:#bf616a;">batch</span><span>.</span><span style="color:#bf616a;">keys</span><span>))
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">i</span><span>, </span><span style="color:#bf616a;">k </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">batch</span><span>.</span><span style="color:#bf616a;">keys </span><span>{
+</span><span>        </span><span style="color:#bf616a;">result</span><span>[</span><span style="color:#bf616a;">i</span><span>] = </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">k</span><span>]
+</span><span>    }
+</span><span>    </span><span style="color:#bf616a;">batch</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#bf616a;">result
+</span></code></pre>
+<p>Fewer wakeups, better cache locality, higher throughput.</p>
+<h3 id="time-based-batching">Time-Based Batching</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">ticker </span><span>:= </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">NewTicker</span><span>(</span><span style="color:#d08770;">100 </span><span>* </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Microsecond</span><span>)
+</span><span style="color:#b48ead;">var </span><span style="color:#bf616a;">pending </span><span>[]</span><span style="color:#b48ead;">writeOp
+</span><span>
+</span><span style="color:#b48ead;">for </span><span>{
+</span><span>    </span><span style="color:#b48ead;">select </span><span>{
+</span><span>    </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">w </span><span>:= &lt;-</span><span style="color:#bf616a;">writes</span><span>:
+</span><span>        </span><span style="color:#bf616a;">pending </span><span>= </span><span style="color:#96b5b4;">append</span><span>(</span><span style="color:#bf616a;">pending</span><span>, </span><span style="color:#bf616a;">w</span><span>)
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ticker</span><span>.</span><span style="color:#bf616a;">C</span><span>:
+</span><span>        </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">_</span><span>, </span><span style="color:#bf616a;">w </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">pending </span><span>{
+</span><span>            </span><span style="color:#bf616a;">state</span><span>[</span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">key</span><span>] = </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">val
+</span><span>            </span><span style="color:#bf616a;">w</span><span>.</span><span style="color:#bf616a;">resp </span><span>&lt;- </span><span style="color:#d08770;">true
+</span><span>        }
+</span><span>        </span><span style="color:#bf616a;">pending </span><span>= </span><span style="color:#d08770;">nil
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>This is how high-throughput systems actually work.</p>
+<h2 id="when-this-pattern-breaks">When This Pattern Breaks</h2>
+<h3 id="where-it-shines">Where It Shines</h3>
+<ul>
+<li>Strong invariants</li>
+<li>Complex state transitions</li>
+<li>Low-moderate throughput</li>
+<li>Correctness over speed</li>
+</ul>
+<h3 id="where-it-fails">Where It Fails</h3>
+<ul>
+<li>High write throughput</li>
+<li>Hot keys</li>
+<li>CPU-bound logic in owner</li>
+</ul>
+<h3 id="the-bottleneck">The Bottleneck</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>All ops → ONE goroutine → ONE P → ONE M
+</span></code></pre>
+<p>Caps throughput regardless of CPUs.</p>
+<h3 id="scaling-sharded-owners">Scaling: Sharded Owners</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">const </span><span style="color:#bf616a;">shards </span><span>= </span><span style="color:#d08770;">32
+</span><span style="color:#bf616a;">owners </span><span>:= </span><span style="color:#96b5b4;">make</span><span>([]</span><span style="color:#b48ead;">chan writeOp</span><span>, </span><span style="color:#bf616a;">shards</span><span>)
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">shardFor</span><span>(</span><span style="color:#bf616a;">key </span><span style="color:#b48ead;">int</span><span>) </span><span style="color:#b48ead;">int </span><span>{
+</span><span>    </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">key </span><span>% </span><span style="color:#bf616a;">shards
+</span><span>}
+</span></code></pre>
+<p>Each shard owns its own map and goroutine. Scales linearly.</p>
+<h2 id="comparison-go-vs-erlang-vs-akka">Comparison: Go vs Erlang vs Akka</h2>
+<table><thead><tr><th>Aspect</th><th>Go</th><th>Erlang</th><th>Akka</th></tr></thead><tbody>
+<tr><td>Actors</td><td>Manual</td><td>Built-in</td><td>Library</td></tr>
+<tr><td>Mailbox</td><td>Channel</td><td>Built-in</td><td>Framework</td></tr>
+<tr><td>Supervision</td><td>Manual</td><td>First-class</td><td>Framework</td></tr>
+<tr><td>Restart</td><td>Your code</td><td>Automatic</td><td>Framework</td></tr>
+<tr><td>Fault tolerance</td><td>Weak</td><td>Exceptional</td><td>Good</td></tr>
+<tr><td>Performance</td><td>Excellent</td><td>Lower</td><td>Lower</td></tr>
+</tbody></table>
+<h3 id="the-philosophical-difference">The Philosophical Difference</h3>
+<p><strong>Go</strong>: "Here are tools. Build what you need."</p>
+<p><strong>Erlang</strong>: "Here is a system. Obey its rules."</p>
+<p>Go dominates in: infrastructure, databases, networking, storage.</p>
+<p>Erlang shines in: telecom, fault-tolerant messaging, long-lived distributed systems.</p>
+<h2 id="proving-liveness">Proving Liveness</h2>
+<p>A goroutine is <strong>live</strong> if there exists a future execution path where it can make progress or exit.</p>
+<p>For every blocking point, answer:</p>
+<blockquote>
+<p><strong>What event guarantees this unblocks?</strong></p>
+</blockquote>
+<p>If the answer is "someone probably sends" or "shouldn't happen"—<strong>not live</strong>.</p>
+<p>With context:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">select </span><span>{
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">resp</span><span>:
+</span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>}
+</span></code></pre>
+<p>Two unblock paths. Both guaranteed eventually. <strong>Live.</strong></p>
+<h2 id="final-synthesis">Final Synthesis</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Buffered channels → timing
+</span><span>Context → lifetime
+</span><span>errgroup → failure propagation
+</span><span>Supervision → system stability
+</span><span>Liveness → correctness proof
+</span></code></pre>
+<p>The master rule:</p>
+<blockquote>
+<p><strong>Concurrency bugs are not about threads or channels—they are about ownership and lifetimes under failure.</strong></p>
+</blockquote>
+<h2 id="series-summary">Series Summary</h2>
+<ul>
+<li><strong>Part 1</strong>: The pattern—channel-owned state</li>
+<li><strong>Part 2</strong>: Why it breaks—lifecycle and leaks</li>
+<li><strong>Part 3</strong>: How to fix it—context and supervision</li>
+<li><strong>Part 4</strong>: How to scale it—batching, sharding, Kubernetes</li>
+</ul>
+<p>This is the complete model for production Go concurrency using the "share memory by communicating" philosophy.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-signals/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Handling OS Signals in Go</span>
+                            </a>
+                        </span>
+                    
+                    
+                        <span class="button next">
+                            <a href="https://pallabcodes.github.io/share-memory-communicating-part-3/">
+                                <span class="button__text">Share Memory by Communicating Part 3: Context &amp; Supervision</span>&nbsp;
+                                <span class="button__icon">→</span>
+                            </a>
+                        </span>
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
