@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Go Worker Pools: Channels as Synchronization | Pallab Codes</title>
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="robots" content="noodp"/>
+
+    <link rel="stylesheet" href="https://pallabcodes.github.io/style.css">
+    <link rel="stylesheet" href="https://pallabcodes.github.io/color/green.css">
+
+        <link rel="stylesheet" href="https://pallabcodes.github.io/color/background_dark.css">
+    
+    <link rel="stylesheet" href="https://pallabcodes.github.io/font-hack-subset.css">
+
+    <meta name="description" content="How worker pools use channels for both data transport and lifecycle coordination—eliminating the need for WaitGroups.">
+
+    <meta property="og:description" content="How worker pools use channels for both data transport and lifecycle coordination—eliminating the need for WaitGroups.">
+    <meta property="og:title" content="Go Worker Pools: Channels as Synchronization | Pallab Codes">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://pallabcodes.github.io/go-worker-pools/">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="How worker pools use channels for both data transport and lifecycle coordination—eliminating the need for WaitGroups.">
+    <meta name="twitter:title" content="Go Worker Pools: Channels as Synchronization | Pallab Codes">
+    <meta property="twitter:domain" content="pallabcodes.github.io">
+    <meta property="twitter:url" content="https://pallabcodes.github.io/go-worker-pools/">
+
+                <link rel="alternate" type="application/rss+xml" title="Pallab Codes RSS Feed" href="https://pallabcodes.github.io/rss.xml" />
+    </head>
+
+<body class="">
+<div class="container">
+    
+    <header class="header">
+        <div class="header__inner">
+            <div class="header__logo">
+                    
+                <a href="https://pallabcodes.github.io" style="text-decoration: none;">
+                    <div class="logo">
+                      
+                            pallab.codes
+                        
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        
+        
+                <nav class="menu">
+            <ul class="menu__inner">
+                <li class="active"><a href="https://pallabcodes.github.io">blog</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/tags">tags</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/resume">resume</a></li>
+            
+                <li><a href="https://pallabcodes.github.io/about">about</a></li>
+            
+                <li><a href="https://github.com/pallabcodes" target="_blank" rel="noopener noreferrer">github</a></li>
+            </ul>
+        </nav>
+    
+    
+        
+    </header>
+    
+
+    <div class="content">
+        
+    <div class="post">
+        
+    <h1 class="post-title"><a href="https://pallabcodes.github.io/go-worker-pools/">Go Worker Pools: Channels as Synchronization</a></h1>
+    <div class="post-meta-inline">
+        
+    <span class="post-date">
+            2025-12-20
+        </span>
+
+    </div>
+
+    
+        <span class="post-tags-inline">
+                :: tags:&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/channels/">#channels</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/concurrency/">#concurrency</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/go/">#go</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/patterns/">#patterns</a>&nbsp;
+                <a class="post-tag" href="https://pallabcodes.github.io/tags/worker-pool/">#worker-pool</a></span>
+    
+
+        <div class="post-content">
+            <p>The worker pool is Go's workhorse pattern. What makes Go's version unique is how channels serve as <em>both</em> the data pipeline <em>and</em> the synchronization mechanism. This post dissects the mechanics.</p>
+<span id="continue-reading"></span><h2 id="the-pattern">The Pattern</h2>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(</span><span style="color:#bf616a;">id </span><span style="color:#b48ead;">int</span><span>, </span><span style="color:#bf616a;">jobs </span><span>&lt;-</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">results </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">j </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">jobs </span><span>{
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">worker</span><span>&quot;, </span><span style="color:#bf616a;">id</span><span>, &quot;</span><span style="color:#a3be8c;">started job</span><span>&quot;, </span><span style="color:#bf616a;">j</span><span>)
+</span><span>        </span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Sleep</span><span>(</span><span style="color:#bf616a;">time</span><span>.</span><span style="color:#bf616a;">Second</span><span>) </span><span style="color:#65737e;">// Simulate work
+</span><span>        </span><span style="color:#bf616a;">fmt</span><span>.</span><span style="color:#bf616a;">Println</span><span>(&quot;</span><span style="color:#a3be8c;">worker</span><span>&quot;, </span><span style="color:#bf616a;">id</span><span>, &quot;</span><span style="color:#a3be8c;">finished job</span><span>&quot;, </span><span style="color:#bf616a;">j</span><span>)
+</span><span>        </span><span style="color:#bf616a;">results </span><span>&lt;- </span><span style="color:#bf616a;">j </span><span>* </span><span style="color:#d08770;">2
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">const </span><span style="color:#bf616a;">numJobs </span><span>= </span><span style="color:#d08770;">5
+</span><span>    </span><span style="color:#bf616a;">jobs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">numJobs</span><span>)
+</span><span>    </span><span style="color:#bf616a;">results </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">numJobs</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Start 3 workers
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">w </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">w </span><span>&lt;= </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">w</span><span>++ {
+</span><span>        </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">worker</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">jobs</span><span>, </span><span style="color:#bf616a;">results</span><span>)
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Send jobs
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">j </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">j </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>; </span><span style="color:#bf616a;">j</span><span>++ {
+</span><span>        </span><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#bf616a;">j
+</span><span>    }
+</span><span>    </span><span style="color:#96b5b4;">close</span><span>(</span><span style="color:#bf616a;">jobs</span><span>)
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// Collect results
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">a </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">a </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>; </span><span style="color:#bf616a;">a</span><span>++ {
+</span><span>        &lt;-</span><span style="color:#bf616a;">results
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Notice: <strong>No <code>WaitGroup</code></strong>. Yet the program doesn't exit early. Why?</p>
+<h2 id="the-core-insight">The Core Insight</h2>
+<blockquote>
+<p><strong>Receiving from a channel is a blocking operation.</strong></p>
+</blockquote>
+<p>This line:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span>&lt;-</span><span style="color:#bf616a;">results
+</span></code></pre>
+<p>...is semantically equivalent to <code>wg.Wait()</code>. It blocks until a value arrives.</p>
+<p>The loop:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">a </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">a </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>; </span><span style="color:#bf616a;">a</span><span>++ {
+</span><span>    &lt;-</span><span style="color:#bf616a;">results
+</span><span>}
+</span></code></pre>
+<p>...blocks until <strong>exactly 5 results</strong> are received. This is the synchronization.</p>
+<h2 id="timeline-walkthrough">Timeline Walkthrough</h2>
+<p>Let's trace execution step by step.</p>
+<h3 id="t0-setup">T0: Setup</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">jobs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">numJobs</span><span>)    </span><span style="color:#65737e;">// Buffered, capacity 5
+</span><span style="color:#bf616a;">results </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">numJobs</span><span>) </span><span style="color:#65737e;">// Buffered, capacity 5
+</span></code></pre>
+<p>Two empty buffers. No blocking yet.</p>
+<h3 id="t1-start-workers">T1: Start Workers</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">w </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">w </span><span>&lt;= </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">w</span><span>++ {
+</span><span>    </span><span style="color:#b48ead;">go </span><span style="color:#bf616a;">worker</span><span>(</span><span style="color:#bf616a;">w</span><span>, </span><span style="color:#bf616a;">jobs</span><span>, </span><span style="color:#bf616a;">results</span><span>)
+</span><span>}
+</span></code></pre>
+<p>Three goroutines spawn. Each immediately tries:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">j </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">jobs </span><span>{ ... }
+</span></code></pre>
+<p>But <code>jobs</code> is empty. <strong>All 3 workers block</strong>, waiting for work.</p>
+<h3 id="t2-send-jobs">T2: Send Jobs</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">j </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">j </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>; </span><span style="color:#bf616a;">j</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#bf616a;">j
+</span><span>}
+</span></code></pre>
+<p>Main sends 5 jobs. Since <code>jobs</code> is buffered (capacity 5), all sends complete without blocking.</p>
+<p>Meanwhile, workers wake up as jobs become available:</p>
+<ul>
+<li>Worker 1 grabs job 1</li>
+<li>Worker 2 grabs job 2</li>
+<li>Worker 3 grabs job 3</li>
+<li>Workers 1/2/3 each grab remaining jobs 4/5 as they finish</li>
+</ul>
+<h3 id="t3-close-jobs">T3: Close Jobs</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#96b5b4;">close</span><span>(</span><span style="color:#bf616a;">jobs</span><span>)
+</span></code></pre>
+<p>This is <strong>critical</strong>. It signals:</p>
+<blockquote>
+<p>"No more jobs will ever be sent."</p>
+</blockquote>
+<p>When workers finish their current job and call <code>range jobs</code> again, they see the channel is closed and exit cleanly.</p>
+<p><strong>Without <code>close(jobs)</code></strong>: Workers block forever waiting for more work → goroutine leak.</p>
+<h3 id="t4-collect-results">T4: Collect Results</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">a </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">a </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>; </span><span style="color:#bf616a;">a</span><span>++ {
+</span><span>    &lt;-</span><span style="color:#bf616a;">results
+</span><span>}
+</span></code></pre>
+<p>Main blocks here, receiving one result at a time. When all 5 results arrive, the loop exits, and <code>main</code> terminates.</p>
+<h2 id="why-buffered-channels-matter">Why Buffered Channels Matter</h2>
+<h3 id="unbuffered-make-chan-int">Unbuffered (<code>make(chan int)</code>)</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Worker finishes → waits for main to receive
+</span><span>Main receives → worker unblocks
+</span></code></pre>
+<p>Like hand-to-hand delivery. Tight coupling. More context switches.</p>
+<h3 id="buffered-make-chan-int-5">Buffered (<code>make(chan int, 5)</code>)</h3>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>Worker finishes → drops result in buffer → continues
+</span><span>Main collects later
+</span></code></pre>
+<p>Like a mailbox. Workers don't wait for the receiver. <strong>Decoupled. Faster.</strong></p>
+<h3 id="rule-of-thumb">Rule of Thumb</h3>
+<table><thead><tr><th>Scenario</th><th>Channel Type</th></tr></thead><tbody>
+<tr><td>Signaling (done, cancel)</td><td>Unbuffered</td></tr>
+<tr><td>Worker pools</td><td>Buffered</td></tr>
+<tr><td>Pipelines</td><td>Buffered</td></tr>
+<tr><td>Backpressure</td><td>Buffered (bounded)</td></tr>
+<tr><td>Strict synchronization</td><td>Unbuffered</td></tr>
+</tbody></table>
+<h2 id="channel-direction-annotations">Channel Direction Annotations</h2>
+<p>Notice the function signature:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(</span><span style="color:#bf616a;">id </span><span style="color:#b48ead;">int</span><span>, </span><span style="color:#bf616a;">jobs </span><span>&lt;-</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">results </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">int</span><span>)
+</span></code></pre>
+<table><thead><tr><th>Annotation</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>&lt;-chan int</code></td><td>Receive-only</td></tr>
+<tr><td><code>chan&lt;- int</code></td><td>Send-only</td></tr>
+<tr><td><code>chan int</code></td><td>Bidirectional</td></tr>
+</tbody></table>
+<p>This is <strong>compile-time safety</strong>. A worker <em>cannot</em> accidentally close <code>jobs</code> or read from <code>results</code>. The type system enforces the contract.</p>
+<h2 id="channels-vs-waitgroup">Channels vs. WaitGroup</h2>
+<p>Both can coordinate goroutine lifecycle. When to use which?</p>
+<table><thead><tr><th>Need</th><th>Tool</th></tr></thead><tbody>
+<tr><td>Wait for N goroutines, no data</td><td><code>WaitGroup</code></td></tr>
+<tr><td>Wait for N results, use data</td><td>Channel (count receives)</td></tr>
+<tr><td>Pipeline (stage → stage)</td><td>Channel</td></tr>
+<tr><td>Fan-out / Fan-in</td><td>Channel</td></tr>
+<tr><td>Phased execution</td><td><code>WaitGroup</code> (phase barriers)</td></tr>
+<tr><td>Cancellation</td><td><code>context.Context</code></td></tr>
+</tbody></table>
+<p>In the worker pool, channels naturally encode <strong>both data flow and lifecycle</strong>:</p>
+<ul>
+<li>Each result on <code>results</code> = one completed job</li>
+<li>Receiving <code>numJobs</code> results = all jobs done</li>
+</ul>
+<p>This eliminates the need for a separate counter.</p>
+<h2 id="common-mistakes">Common Mistakes</h2>
+<h3 id="1-forgetting-to-close-the-jobs-channel">1. Forgetting to close the jobs channel</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#65737e;">// close(jobs) // ← Missing!
+</span></code></pre>
+<p>Workers block forever on <code>range jobs</code>. Goroutine leak.</p>
+<h3 id="2-receiving-fewer-results-than-expected">2. Receiving fewer results than expected</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">for </span><span style="color:#bf616a;">a </span><span>:= </span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">a </span><span>&lt;= </span><span style="color:#bf616a;">numJobs</span><span>-</span><span style="color:#d08770;">1</span><span>; </span><span style="color:#bf616a;">a</span><span>++ { </span><span style="color:#65737e;">// ← Off by one
+</span><span>    &lt;-</span><span style="color:#bf616a;">results
+</span><span>}
+</span></code></pre>
+<p>One worker's <code>results &lt;- ...</code> blocks forever (if unbuffered) or the result is orphaned (if buffered). Leak.</p>
+<h3 id="3-closing-the-results-channel-from-a-worker">3. Closing the results channel from a worker</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(...) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">j </span><span>:= </span><span style="color:#b48ead;">range </span><span style="color:#bf616a;">jobs </span><span>{
+</span><span>        </span><span style="color:#bf616a;">results </span><span>&lt;- </span><span style="color:#bf616a;">j </span><span>* </span><span style="color:#d08770;">2
+</span><span>    }
+</span><span>    </span><span style="color:#96b5b4;">close</span><span>(</span><span style="color:#bf616a;">results</span><span>) </span><span style="color:#65737e;">// ← PANIC if multiple workers
+</span><span>}
+</span></code></pre>
+<p>Only <strong>one</strong> goroutine should close a channel. If multiple workers try, you get a panic. Solution: close <code>results</code> in <code>main</code> after all workers finish, often coordinated with a <code>WaitGroup</code> if needed.</p>
+<h3 id="4-sending-on-a-closed-channel">4. Sending on a closed channel</h3>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#96b5b4;">close</span><span>(</span><span style="color:#bf616a;">jobs</span><span>)
+</span><span style="color:#bf616a;">jobs </span><span>&lt;- </span><span style="color:#d08770;">10 </span><span style="color:#65737e;">// ← PANIC
+</span></code></pre>
+<p>Sends to a closed channel panic. Always close from the sender side, never the receiver.</p>
+<h2 id="mental-model">Mental Model</h2>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>                  ┌─────────────┐
+</span><span>                  │   Worker 1  │───┐
+</span><span>┌──────────┐      ├─────────────┤   │      ┌──────────┐
+</span><span>│  Main    │ ───► │   Worker 2  │ ──┼───►  │   Main   │
+</span><span>│ (sender) │      ├─────────────┤   │      │(receiver)│
+</span><span>└──────────┘      │   Worker 3  │───┘      └──────────┘
+</span><span>   jobs ──────────────────────────────────►   results
+</span></code></pre>
+<ul>
+<li><code>jobs</code> flows from main to workers</li>
+<li><code>results</code> flows from workers to main</li>
+<li><code>close(jobs)</code> signals "no more work"</li>
+<li>Receiving <code>numJobs</code> results signals "all done"</li>
+</ul>
+<h2 id="production-considerations">Production Considerations</h2>
+<h3 id="graceful-shutdown">Graceful Shutdown</h3>
+<p>In real systems, you need cancellation:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">func </span><span style="color:#8fa1b3;">worker</span><span>(</span><span style="color:#bf616a;">ctx context</span><span>.</span><span style="color:#b48ead;">Context</span><span>, </span><span style="color:#bf616a;">jobs </span><span>&lt;-</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#bf616a;">results </span><span style="color:#b48ead;">chan</span><span>&lt;- </span><span style="color:#b48ead;">int</span><span>) {
+</span><span>    </span><span style="color:#b48ead;">for </span><span>{
+</span><span>        </span><span style="color:#b48ead;">select </span><span>{
+</span><span>        </span><span style="color:#b48ead;">case </span><span>&lt;-</span><span style="color:#bf616a;">ctx</span><span>.</span><span style="color:#bf616a;">Done</span><span>():
+</span><span>            </span><span style="color:#b48ead;">return </span><span style="color:#65737e;">// Shutdown signal
+</span><span>        </span><span style="color:#b48ead;">case </span><span style="color:#bf616a;">j</span><span>, </span><span style="color:#bf616a;">ok </span><span>:= &lt;-</span><span style="color:#bf616a;">jobs</span><span>:
+</span><span>            </span><span style="color:#b48ead;">if </span><span>!</span><span style="color:#bf616a;">ok </span><span>{
+</span><span>                </span><span style="color:#b48ead;">return </span><span style="color:#65737e;">// Channel closed
+</span><span>            }
+</span><span>            </span><span style="color:#65737e;">// Process job
+</span><span>            </span><span style="color:#bf616a;">results </span><span>&lt;- </span><span style="color:#bf616a;">j </span><span>* </span><span style="color:#d08770;">2
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<h3 id="error-handling">Error Handling</h3>
+<p>Workers can fail. Propagate errors via a separate channel or use <code>errgroup</code>:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#b48ead;">import </span><span>&quot;</span><span style="color:#a3be8c;">golang.org/x/sync/errgroup</span><span>&quot;
+</span><span>
+</span><span style="color:#bf616a;">g</span><span>, </span><span style="color:#bf616a;">ctx </span><span>:= </span><span style="color:#bf616a;">errgroup</span><span>.</span><span style="color:#bf616a;">WithContext</span><span>(</span><span style="color:#bf616a;">context</span><span>.</span><span style="color:#bf616a;">Background</span><span>())
+</span><span style="color:#b48ead;">for </span><span style="color:#bf616a;">w </span><span>:= </span><span style="color:#d08770;">0</span><span>; </span><span style="color:#bf616a;">w </span><span>&lt; </span><span style="color:#d08770;">3</span><span>; </span><span style="color:#bf616a;">w</span><span>++ {
+</span><span>    </span><span style="color:#bf616a;">g</span><span>.</span><span style="color:#bf616a;">Go</span><span>(</span><span style="color:#b48ead;">func</span><span>() </span><span style="color:#b48ead;">error </span><span>{
+</span><span>        </span><span style="color:#b48ead;">return </span><span style="color:#bf616a;">worker</span><span>(</span><span style="color:#bf616a;">ctx</span><span>, </span><span style="color:#bf616a;">jobs</span><span>, </span><span style="color:#bf616a;">results</span><span>)
+</span><span>    })
+</span><span>}
+</span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">err </span><span>:= </span><span style="color:#bf616a;">g</span><span>.</span><span style="color:#bf616a;">Wait</span><span>(); </span><span style="color:#bf616a;">err </span><span>!= </span><span style="color:#d08770;">nil </span><span>{
+</span><span>    </span><span style="color:#65737e;">// Handle first error
+</span><span>}
+</span></code></pre>
+<h3 id="backpressure">Backpressure</h3>
+<p>If workers are slow and jobs pile up, a bounded buffer provides natural backpressure:</p>
+<pre data-lang="go" style="background-color:#2b303b;color:#c0c5ce;" class="language-go "><code class="language-go" data-lang="go"><span style="color:#bf616a;">jobs </span><span>:= </span><span style="color:#96b5b4;">make</span><span>(</span><span style="color:#b48ead;">chan int</span><span>, </span><span style="color:#d08770;">100</span><span>) </span><span style="color:#65737e;">// Buffer of 100
+</span></code></pre>
+<p>When full, <code>jobs &lt;- j</code> blocks, slowing the producer.</p>
+<h2 id="summary">Summary</h2>
+<ol>
+<li><strong>Channels are synchronization</strong>. Receiving blocks; counting receives replaces <code>WaitGroup</code>.</li>
+<li><strong><code>close(jobs)</code> is mandatory</strong>. It signals workers to exit.</li>
+<li><strong>Buffered = decoupled</strong>. Workers don't wait for receivers.</li>
+<li><strong>Direction annotations are contracts</strong>. Enforced at compile time.</li>
+<li><strong>One closer per channel</strong>. Close from the sender side only.</li>
+</ol>
+<p>The worker pool is foundational. Master it, and you understand Go concurrency patterns at a senior level.</p>
+
+        </div>
+
+        
+            <div class="pagination">
+                <div class="pagination__title">
+                    <span class="pagination__title-h">Read more posts?</span>
+                    <hr />
+                </div>
+                <div class="pagination__buttons">
+                        <span class="button previous">
+                            <a href="https://pallabcodes.github.io/go-actors-sharding/">
+                                <span class="button__icon">←</span>&nbsp;
+                                <span class="button__text">Scaling Go Actors: Sharding State Owners</span>
+                            </a>
+                        </span>
+                    
+                    </div>
+            </div>
+        
+    </div>
+
+    </div>
+
+    
+    <footer class="footer">
+        <div class="footer__inner">
+                <div class="copyright">
+                        <span>© 
+    2025
+ Pallab</span>
+                    <span class="copyright-theme">
+                        <span class="copyright-theme-sep">:: </span>
+                        Theme: <a href="https://github.com/pawroman/zola-theme-terminimal/">Terminimal</a> by pawroman
+                    </span>
+                </div>
+            </div>
+    </footer>
+    
+
+</div>
+</body>
+
+</html>
